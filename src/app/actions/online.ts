@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
+import { notifyTenant } from "@/lib/push";
 import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
 import { cookies } from "next/headers";
@@ -103,6 +105,11 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
     });
     await recordFailure([{ key: keys[0], limit: 10 }, { key: keys[1], limit: 5 }]); // counts orders, not failures
     revalidatePath("/online-orders"); revalidatePath("/");
+    const summary = priced.lines.slice(0, 3).map((l) => `${l.qty}× ${l.name}`).join(", ") + (priced.lines.length > 3 ? "…" : "");
+    after(() => notifyTenant(tenant.id, {
+      title: `🛎️ New online order · ₹${Math.round(priced.total)}`, body: `${name} · ${kind === "DELIVERY" ? "Delivery" : "Pickup"}${v.isPreorder ? ` · ${mealSlot} ${date}` : ""} · ${summary}`,
+      url: "/online-orders", tag: `online-${token}`, icon: `/pwa/${tenant.code}/icon-192.png`, sticky: true,
+    }));
     dest = `/${tenant.code}/order/${token}`;
   } catch (e) { return fail(e); }
   redirect(dest);

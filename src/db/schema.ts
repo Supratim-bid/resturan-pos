@@ -538,6 +538,18 @@ export const attendance = pgTable("attendance", {
 
 // Manual money entries for the Cash & Bank ledger: opening balances, owner adding / taking money,
 // cash deposited to the bank, bank charges... (bills, expenses, vendor payments and payouts are added automatically)
+// Phones / computers that get a notification for new online orders (web push)
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  tenantId: tid(),
+  userId: integer("user_id").notNull(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("push_subs_tenant").on(t.tenantId)]);
+
 export const moneyEntries = pgTable("money_entries", {
   id: serial("id").primaryKey(),
   tenantId: tid(),

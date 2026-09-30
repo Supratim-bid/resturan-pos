@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "backup": "node scripts/backup.mjs"
+    "backup": "node scripts/backup.mjs",
+    "vapid": "web-push generate-vapid-keys"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",
@@ -26,7 +27,8 @@
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "recharts": "^2.15.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
@@ -36,6 +38,7 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "dotenv": "^16.4.0",
     "drizzle-kit": "^0.31.0",
     "tailwindcss": "^4.1.0",

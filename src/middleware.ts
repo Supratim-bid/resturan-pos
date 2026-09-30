@@ -11,6 +11,7 @@ export async function middleware(req: NextRequest) {
     url.pathname = "/admin/login";
     return NextResponse.redirect(url);
   }
+  if (path === "/install") return NextResponse.next(); // how to install the staff app (before login too)
   // restaurant login link: /<restaurant-code>
   const seg = path.split("/").filter(Boolean);
   if (seg.length === 1 && isRestaurantPath(seg[0].toLowerCase())) return NextResponse.next();
@@ -21,5 +22,5 @@ export async function middleware(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 export const config = {
-  matcher: ["/((?!login|admin/login|_next|img/|logo|platform-logo.svg|demo-alooposto-logo.jpg|icon|apple-icon|manifest.webmanifest|favicon.ico|api/health|api/pay/).*)"],
+  matcher: ["/((?!login|admin/login|_next|img/|logo|platform-logo.svg|demo-alooposto-logo.jpg|icon|apple-icon|manifest.webmanifest|favicon.ico|api/health|api/pay/|sw.js|offline.html|pwa/).*)"],
 };

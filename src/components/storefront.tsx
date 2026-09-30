@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { placeOnlineOrderAction, sendPhoneOtpAction, verifyPhoneOtpAction, type PlaceOrderInput } from "@/app/actions/online";
 import type { StoreConfig, StoreDish } from "@/lib/online";
+import { InstallBanner } from "@/components/pwa";
 
 const inr = (n: number, d = 0) => "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -79,6 +80,7 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
       {config.tagline && <p className="text-sm opacity-90">{config.tagline}</p>}
       {config.note && <p className="mx-auto mt-2 max-w-md rounded-xl bg-white/15 px-3 py-1.5 text-sm">{config.note}</p>}
       <a href={`/${code}/order/my`} className="mt-3 inline-block rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">🧾 My orders</a>
+      <a href={`/${code}/order/app`} className="ml-2 mt-3 inline-block rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">📲 Get the app</a>
     </header>
   );
 
@@ -188,6 +190,7 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
     <div className="min-h-dvh bg-cream pb-28">
       {header}
       {!config.open && <div className="bg-amber-100 px-4 py-3 text-center text-sm font-semibold text-amber-900">{config.closedMsg}</div>}
+      <div className="px-4"><InstallBanner name={config.name} href={`/${code}/order/app`} /></div>
       <main className="mx-auto max-w-3xl px-4 pt-4">
         <input className="input mb-3" placeholder="Search dishes…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search dishes" />
         {!q && (

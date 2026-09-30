@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
     "/[code]/order/[token]/bill": ["./assets/fonts/**", "./node_modules/pdfkit/js/**"],
   },
   serverExternalPackages: ["@react-pdf/renderer"],
+  // app details (manifest, icons) always in <head>, so phones can install the app (no streamed metadata)
+  htmlLimitedBots: /.*/,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

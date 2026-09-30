@@ -10,6 +10,9 @@ import { fmtDate, fmtDateTime, fmtTime, inr, todayIST } from "@/lib/format";
 import { billCounts, type OnlineLine } from "@/lib/online";
 import { smsReady } from "@/lib/sms";
 import { Badge, Card, Empty, PageHeader } from "@/components/ui";
+import { PushToggle } from "@/components/pwa";
+import { pushPublicKey, pushReady } from "@/lib/push";
+import { removePushSubscriptionAction, savePushSubscriptionAction, testPushAction } from "@/app/actions/push";
 import { BlockButton, CopyLink, LiveOrders, OnlineOrderActions, OnlineSettings, OpenSwitch } from "@/components/online-orders";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +51,8 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
     <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader title="Online Orders" subtitle="Orders customers place from your online menu. Accept to turn them into bills." actions={<><OpenSwitch open={!!s?.onlineOpen} /><LiveOrders newCount={newOnes.length} /></>} />
       {!(s?.onlinePayCash || (s?.onlinePayUpi && (s?.upiId || s?.qrImageId))) && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800"><b>Customers can&apos;t order yet:</b> no way to pay is available. Add your UPI ID or payment QR in <Link className="underline" href="/settings">Settings</Link>, or allow cash in the online ordering settings below.</div>}
+      {pushReady() ? <div className="card !py-2.5"><PushToggle publicKey={pushPublicKey()} save={savePushSubscriptionAction} remove={removePushSubscriptionAction} test={testPushAction} /></div>
+        : <p className="text-xs text-muted">Phone notifications for new orders need two server keys (VAPID) - see the setup guide.</p>}
       <div className="flex flex-wrap gap-2">{tab("new", `New (${newOnes.length})`)}{tab("accepted", "Accepted · last 36 h")}{tab("rejected", "Rejected · last 36 h")}</div>
 
       {list.length === 0 ? <Empty>{show === "new" ? "No new orders. This page checks every 15 seconds." : "Nothing here in the last 36 hours."}</Empty> : (
@@ -101,6 +106,7 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
               <a className="btn-ghost btn-sm" href={link} target="_blank" rel="noreferrer">Open order page</a>
               <a className="btn-ghost btn-sm" href={wa} target="_blank" rel="noreferrer">Share on WhatsApp</a>
               <a className="btn-ghost btn-sm" href={qr} download={`order-qr-${u.tenantCode}.png`}>Download QR</a>
+              <a className="btn-ghost btn-sm" href={`/${u.tenantCode}/order/app`} target="_blank" rel="noreferrer">📲 Customer app page</a>
             </div>
             <p className="text-xs text-muted">Print the QR for tables, bags and flyers, or put the link in your Instagram bio and WhatsApp status. {todayIST() && ""}</p>
           </div>
