@@ -67,8 +67,14 @@ export default async function Money({ searchParams }: { searchParams: Promise<{ 
         </Card>
         <Card title="Where the money came from / went">
           <div className="grid gap-4 sm:grid-cols-2 text-sm">
-            <div><div className="mb-1 font-semibold">Received (by mode)</div>
-              {r.byMode.length ? r.byMode.map((m) => <div key={m.mode} className="flex justify-between"><span>{m.mode}</span><span className="tabular-nums">{inr(m.amount)}</span></div>) : <p className="text-muted">Nothing yet.</p>}
+            <div><div className="mb-1 font-semibold">Received (by mode, after refunds)</div>
+              {r.byMode.length ? r.byMode.map((m) => (
+                <div key={m.mode}>
+                  <div className="flex justify-between"><span>{m.mode}</span><span className="tabular-nums font-semibold">{inr(m.amount)}</span></div>
+                  {m.refunded > 0 && <div className="flex justify-between pl-3 text-xs text-muted"><span>received {inr(m.received)} − refunded {inr(m.refunded)}</span></div>}
+                </div>
+              )) : <p className="text-muted">Nothing yet.</p>}
+              <p className="mt-1 text-[11px] text-muted">Each payment is listed in the ledger below - tap a bill number to open it.</p>
             </div>
             <div><div className="mb-1 font-semibold">Spent (expenses & vendors)</div>
               {r.byCategory.length ? r.byCategory.map((c) => <div key={c.category} className="flex justify-between"><span>{c.category}</span><span className="tabular-nums">{inr(c.amount)}</span></div>) : <p className="text-muted">Nothing yet.</p>}
@@ -88,7 +94,7 @@ export default async function Money({ searchParams }: { searchParams: Promise<{ 
               {shown.map((x, i) => (
                 <tr key={i}>
                   <td className="whitespace-nowrap">{fmtDate(x.date)}</td>
-                  <td>{x.details}{x.entryId ? <> <DeleteEntry id={x.entryId} /></> : null}</td>
+                  <td>{x.orderId ? <Link className="text-brand underline" href={`/orders/${x.orderId}`}>{x.details}</Link> : x.details}{x.entryId ? <> <DeleteEntry id={x.entryId} /></> : null}</td>
                   <td className="whitespace-nowrap text-xs">{ACCOUNT_LABEL[x.account]}</td>
                   <td className="num text-emerald-700">{x.credit ? inr2(x.credit) : ""}</td>
                   <td className="num text-red-700">{x.debit ? inr2(x.debit) : ""}</td>

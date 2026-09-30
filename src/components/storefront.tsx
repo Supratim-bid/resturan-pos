@@ -222,6 +222,10 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
           })}
         </div>
         {(config.phone || config.address || config.whatsapp) && <p className="mt-6 text-center text-xs text-muted">{[config.address, config.phone && `Ph: ${config.phone}`, config.whatsapp && `WhatsApp: ${config.whatsapp}`].filter(Boolean).join(" · ")}</p>}
+        <nav className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-[11px] text-muted">
+          <a className="underline" href={`/${code}/info/contact`}>Contact us</a><a className="underline" href={`/${code}/info/terms`}>Terms</a>
+          <a className="underline" href={`/${code}/info/refund`}>Refund &amp; cancellation</a><a className="underline" href={`/${code}/info/delivery`}>Delivery</a><a className="underline" href={`/${code}/info/privacy`}>Privacy</a>
+        </nav>
       </main>
       {count > 0 && config.open && (
         <div className="fixed inset-x-0 bottom-0 px-4 pb-[calc(12px+env(safe-area-inset-bottom))]">

@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation";
 import {
   requestOtpAction, verifyOtpAction, passwordLoginAction, createTenantAction, updateTenantAction, setTenantActiveAction, addOwnerAction,
   resetUserPasswordAction, deleteTenantAction, addSuperAdminAction, setSuperAdminActiveAction, setTenantFeatureAction,
+  setTenantPlanAction, savePlanAction, deletePlanAction,
 } from "@/app/actions/admin";
-import { FEATURES, FEATURE_KEYS } from "@/lib/features";
+import { FEATURES, FEATURE_GROUPS, FEATURE_KEYS, type FeatureKey, type FeatureGroup } from "@/lib/features";
 import { Modal } from "./crud";
 
 const Msg = ({ m }: { m: { ok: boolean; t: string } | null }) => (m ? <p className={`rounded-lg px-3 py-2 text-sm ${m.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{m.t}</p> : null);
@@ -62,9 +63,10 @@ const field = (label: string, v: string, set: (x: string) => void, o: { type?: s
   </div>
 );
 
-export function NewTenantButton() {
+export type PlanOpt = { key: string; name: string; price: number; maxUsers: number };
+export function NewTenantButton({ plans = [] }: { plans?: PlanOpt[] }) {
   const [open, setOpen] = useState(false);
-  const blank = { name: "", code: "", ownerName: "", ownerUsername: "", ownerPassword: "", ownerPhone: "", contactEmail: "", contactPhone: "", plan: "Standard", billPrefix: "", sample: false };
+  const blank = { name: "", code: "", ownerName: "", ownerUsername: "", ownerPassword: "", ownerPhone: "", contactEmail: "", contactPhone: "", plan: plans[0]?.key ?? "starter", billPrefix: "", sample: false };
   const [v, setV] = useState(blank);
   const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
@@ -83,7 +85,8 @@ export function NewTenantButton() {
           {field("Owner password", v.ownerPassword, s("ownerPassword"), { half: true, help: "Min 6 characters - share it with the owner" })}
           {field("Contact email", v.contactEmail, s("contactEmail"), { half: true, type: "email" })}
           {field("Contact phone", v.contactPhone, s("contactPhone"), { half: true, type: "tel" })}
-          {field("Plan", v.plan, s("plan"), { half: true })}
+          <div><label className="label">Plan</label>
+            <select className="input" value={v.plan} onChange={(e) => s("plan")(e.target.value)}>{plans.map((p) => <option key={p.key} value={p.key}>{p.name} · ₹{p.price}/month · {p.maxUsers || "unlimited"} logins</option>)}</select></div>
           {field("Bill number prefix", v.billPrefix, s("billPrefix"), { half: true, ph: "e.g. AP-", help: "Owner can change it later" })}
           <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={v.sample} onChange={(e) => setV((o) => ({ ...o, sample: e.target.checked }))} /> Add sample Bengali menu, recipes &amp; ingredients (for demos)</label>
         </div>
@@ -97,9 +100,9 @@ export function NewTenantButton() {
   );
 }
 
-type T = { id: number; name: string; code: string; plan: string; contactName: string; contactEmail: string; contactPhone: string; notes: string; active: boolean };
+type T = { id: number; name: string; code: string; contactName: string; contactEmail: string; contactPhone: string; notes: string; active: boolean };
 export function TenantEditor({ t }: { t: T }) {
-  const [v, setV] = useState({ name: t.name, code: t.code, plan: t.plan, contactName: t.contactName, contactEmail: t.contactEmail, contactPhone: t.contactPhone, notes: t.notes });
+  const [v, setV] = useState({ name: t.name, code: t.code, contactName: t.contactName, contactEmail: t.contactEmail, contactPhone: t.contactPhone, notes: t.notes });
   const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
@@ -110,7 +113,6 @@ export function TenantEditor({ t }: { t: T }) {
         {field("Name", v.name, s("name"), { half: true })}
         {field("Login code", v.code, (x) => s("code")(x.toLowerCase()), { half: true, help: "Changing it changes what staff type at login" })}
         {field("Contact person", v.contactName, s("contactName"), { half: true })}
-        {field("Plan", v.plan, s("plan"), { half: true })}
         {field("Contact email", v.contactEmail, s("contactEmail"), { half: true })}
         {field("Contact phone", v.contactPhone, s("contactPhone"), { half: true })}
         {field("Notes", v.notes, s("notes"))}
@@ -199,27 +201,119 @@ export function SuperAdmins({ list, meId }: { list: { id: number; email: string;
   );
 }
 
-/** Extra features for one restaurant (switched on by the super admin on request) */
-export function TenantFeatures({ id, features: initial, off = [] }: { id: number; features: string[]; off?: string[] }) {
-  const [features, setFeatures] = useState(initial);
+/** Plan + login limit for one restaurant */
+export function TenantPlan({ id, plan, maxUsers, plans, usersActive }: { id: number; plan: string; maxUsers: number | null; plans: PlanOpt[]; usersActive: number }) {
+  const [v, setV] = useState({ plan, maxUsers: maxUsers == null ? "" : String(maxUsers) });
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const cur = plans.find((p) => p.key === v.plan);
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div><label className="label" htmlFor="tplan">Plan</label>
+          <select id="tplan" className="input" value={v.plan} onChange={(e) => setV({ ...v, plan: e.target.value })}>
+            {!cur && <option value={v.plan}>{v.plan} (not a plan)</option>}
+            {plans.map((p) => <option key={p.key} value={p.key}>{p.name} · ₹{p.price}/month</option>)}
+          </select></div>
+        <div><label className="label" htmlFor="tmax">Login limit (blank = plan&apos;s {cur ? cur.maxUsers || "unlimited" : "limit"})</label>
+          <input id="tmax" className="input" inputMode="numeric" value={v.maxUsers} placeholder="use plan's limit" onChange={(e) => setV({ ...v, maxUsers: e.target.value.replace(/\D/g, "") })} />
+          <p className="mt-1 text-[11px] text-muted">{usersActive} active login{usersActive === 1 ? "" : "s"} now. 0 = no limit.</p></div>
+      </div>
+      <Msg m={m} />
+      <button className="btn-primary" disabled={pending} onClick={() => start(async () => { const r = await setTenantPlanAction(id, v.plan, v.maxUsers); setM(r.ok ? { ok: true, t: r.msg ?? "Saved" } : { ok: false, t: r.error }); router.refresh(); })}>Save plan</button>
+    </div>
+  );
+}
+
+const grouped = () => (Object.keys(FEATURE_GROUPS) as FeatureGroup[]).map((g) => ({ g, keys: FEATURE_KEYS.filter((k) => FEATURES[k].group === g) }));
+const soon = (k: FeatureKey) => "comingSoon" in FEATURES[k] && !!(FEATURES[k] as { comingSoon?: boolean }).comingSoon;
+
+/** Features of one restaurant: from its plan, plus add-ons, minus removals */
+export function TenantFeatures({ id, planName, planFeatures, addons, removed, off = [] }: { id: number; planName: string; planFeatures: string[]; addons: string[]; removed: string[]; off?: string[] }) {
+  const allowedNow = (k: string, a: string[], r: string[]) => (planFeatures.includes(k) || a.includes(k)) && !r.includes(k);
+  const [st, setSt] = useState({ addons, removed });
   const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
   return (
-    <div className="space-y-2">
-      {FEATURE_KEYS.map((k) => {
-        const on = features.includes(k);
-        return (
-          <label key={k} className="flex items-start gap-3 rounded-xl border border-line p-3">
-            <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on} disabled={pending}
-              onChange={(e) => { const want = e.target.checked; setFeatures((f) => want ? [...f, k] : f.filter((x) => x !== k)); start(async () => { const r = await setTenantFeatureAction(id, k, want); if (!r.ok) setFeatures(initial); setM(r.ok ? { ok: true, t: `${FEATURES[k].label}: ${r.msg}` } : { ok: false, t: r.error }); router.refresh(); }); }} />
-            <span><b>{FEATURES[k].label}</b> {on ? <span className="ml-1 rounded-full bg-emerald-100 px-2 text-[11px] font-bold text-emerald-800">ALLOWED</span> : <span className="ml-1 rounded-full bg-stone-100 px-2 text-[11px] font-bold text-stone-600">OFF</span>}
-              {on && off.includes(k) && <span className="ml-1 rounded-full bg-amber-100 px-2 text-[11px] font-bold text-amber-900">owner has it switched off</span>}
-              <span className="block text-xs text-muted">{FEATURES[k].help}</span></span>
-          </label>
-        );
-      })}
+    <div className="space-y-4">
+      <p className="text-xs text-muted">Ticked = this restaurant can use it. Untick a plan feature to remove it for this restaurant only; tick one outside the plan to sell it as an add-on. Basics (billing, orders, customers, menu, expenses, cash closing) are always included.</p>
+      {grouped().map(({ g, keys }) => (
+        <div key={g}>
+          <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">{FEATURE_GROUPS[g]}</div>
+          <div className="space-y-2">
+            {keys.map((k) => {
+              const on = allowedNow(k, st.addons, st.removed), inPlan = planFeatures.includes(k), cs = soon(k);
+              return (
+                <label key={k} className={`flex items-start gap-3 rounded-xl border border-line p-3 ${cs ? "opacity-60" : ""}`}>
+                  <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on && !cs} disabled={pending || cs} aria-label={FEATURES[k].label}
+                    onChange={(e) => { const want = e.target.checked, before = st;
+                      setSt((x) => ({ addons: want ? (inPlan ? x.addons : [...x.addons, k]) : x.addons.filter((y) => y !== k), removed: want ? x.removed.filter((y) => y !== k) : inPlan ? [...x.removed, k] : x.removed }));
+                      start(async () => {
+                        const r = await setTenantFeatureAction(id, k, want);
+                        if (!r.ok) setSt(before);
+                        setM(r.ok ? { ok: true, t: `${FEATURES[k].label}: ${r.msg}` } : { ok: false, t: r.error }); router.refresh();
+                      }); }} />
+                  <span><b>{FEATURES[k].label}</b>{" "}
+                    {cs ? <span className="rounded-full bg-stone-100 px-2 text-[11px] font-bold text-stone-600">COMING SOON</span>
+                      : inPlan && on ? <span className="rounded-full bg-emerald-100 px-2 text-[11px] font-bold text-emerald-800">IN {planName.toUpperCase()}</span>
+                      : inPlan ? <span className="rounded-full bg-red-100 px-2 text-[11px] font-bold text-red-800">REMOVED FROM PLAN</span>
+                      : on ? <span className="rounded-full bg-gold-light px-2 text-[11px] font-bold text-ink">ADD-ON</span>
+                      : <span className="rounded-full bg-stone-100 px-2 text-[11px] font-bold text-stone-600">NOT IN PLAN</span>}
+                    {on && !cs && off.includes(k) && <span className="ml-1 rounded-full bg-amber-100 px-2 text-[11px] font-bold text-amber-900">owner switched it off</span>}
+                    <span className="block text-xs text-muted">{FEATURES[k].help}</span></span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
       <Msg m={m} />
+    </div>
+  );
+}
+
+/** Super admin: edit plans (features, price, login limit) */
+type PlanRow = { id: number; key: string; name: string; description: string; price: number; maxUsers: number; features: string[]; sortOrder: number; active: boolean; used: number };
+export function PlanEditor({ plan }: { plan?: PlanRow }) {
+  const blank = { key: "", name: "", description: "", price: "0", maxUsers: "5", features: [] as string[], sortOrder: "10", active: true };
+  const [v, setV] = useState(plan ? { key: plan.key, name: plan.name, description: plan.description, price: String(plan.price), maxUsers: String(plan.maxUsers), features: plan.features, sortOrder: String(plan.sortOrder), active: plan.active } : blank);
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const toggle = (k: string) => setV((x) => ({ ...x, features: x.features.includes(k) ? x.features.filter((y) => y !== k) : [...x.features, k] }));
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-4">
+        <div className="sm:col-span-2"><label className="label">Plan name</label><input className="input" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></div>
+        {!plan && <div className="sm:col-span-2"><label className="label">Plan code</label><input className="input font-mono" placeholder="e.g. premium" value={v.key} onChange={(e) => setV({ ...v, key: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })} /></div>}
+        <div><label className="label">Price ₹ / month</label><input className="input" inputMode="decimal" value={v.price} onChange={(e) => setV({ ...v, price: e.target.value })} /></div>
+        <div><label className="label">Logins (0 = no limit)</label><input className="input" inputMode="numeric" value={v.maxUsers} onChange={(e) => setV({ ...v, maxUsers: e.target.value.replace(/\D/g, "") })} /></div>
+        <div><label className="label">Order in list</label><input className="input" inputMode="numeric" value={v.sortOrder} onChange={(e) => setV({ ...v, sortOrder: e.target.value.replace(/\D/g, "") })} /></div>
+        <label className="flex items-end gap-2 pb-3 text-sm"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={v.active} onChange={(e) => setV({ ...v, active: e.target.checked })} />Offered</label>
+        <div className="sm:col-span-4"><label className="label">Short description</label><input className="input" value={v.description} onChange={(e) => setV({ ...v, description: e.target.value })} /></div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {grouped().map(({ g, keys }) => (
+          <div key={g} className="rounded-xl bg-cream p-3">
+            <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">{FEATURE_GROUPS[g]}</div>
+            {keys.map((k) => (
+              <label key={k} className="flex items-center gap-2 py-0.5 text-sm"><input type="checkbox" className="h-4 w-4 accent-[var(--color-brand)]" checked={v.features.includes(k)} onChange={() => toggle(k)} aria-label={`${v.name || "plan"}: ${FEATURES[k].label}`} />
+                {FEATURES[k].label}{soon(k) && <span className="text-[10px] text-muted">(coming soon)</span>}</label>
+            ))}
+          </div>
+        ))}
+      </div>
+      <Msg m={m} />
+      <div className="flex flex-wrap gap-2">
+        <button className="btn-primary" disabled={pending} onClick={() => start(async () => {
+          const r = await savePlanAction({ id: plan?.id, ...v });
+          setM(r.ok ? { ok: true, t: r.msg ?? "Saved" } : { ok: false, t: r.error });
+          if (r.ok) { if (!plan) setV(blank); router.refresh(); }
+        })}>{plan ? "Save plan" : "Create plan"}</button>
+        {plan && <button className="btn-ghost" disabled={pending} onClick={() => { if (confirm(`Delete plan ${plan.name}?`)) start(async () => { const r = await deletePlanAction(plan.id); setM(r.ok ? { ok: true, t: r.msg ?? "" } : { ok: false, t: r.error }); router.refresh(); }); }}>Delete</button>}
+      </div>
     </div>
   );
 }

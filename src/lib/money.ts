@@ -17,7 +17,7 @@ const acctSql = (col: unknown) => sql<string>`case when ${col} = 'Cash' then 'CA
 
 export type LedgerRow = {
   date: string; seq: number; account: Account; credit: number; debit: number;
-  details: string; source: "BILL" | "REFUND" | "EXPENSE" | "VENDOR" | "PAYOUT" | "CASHCOUNT" | "ENTRY"; mode?: string; entryId?: number; category?: string;
+  details: string; orderId?: number | null; source: "BILL" | "REFUND" | "EXPENSE" | "VENDOR" | "PAYOUT" | "CASHCOUNT" | "ENTRY"; mode?: string; entryId?: number; category?: string;
 };
 
 export const ENTRY_TYPES = {
@@ -86,8 +86,8 @@ export async function ledgerRows(tenantId: number, from: string, to: string): Pr
     const a = accountOf(p.mode); if (!a) continue;
     const n = Number(p.amount);
     const who = [p.order ? `Bill ${p.order.billNo}` : "Advance", p.customer?.name].filter(Boolean).join(" · ");
-    if (n >= 0) rows.push({ date: p.date, seq: 1, account: a, credit: n, debit: 0, details: `${who} (${p.mode})`, source: "BILL", mode: p.mode });
-    else rows.push({ date: p.date, seq: 2, account: a, credit: 0, debit: -n, details: `Refund · ${who} (${p.mode})`, source: "REFUND", mode: p.mode });
+    if (n >= 0) rows.push({ date: p.date, seq: 1, account: a, credit: n, debit: 0, details: `${who} (${p.mode})`, source: "BILL", mode: p.mode, orderId: p.orderId });
+    else rows.push({ date: p.date, seq: 2, account: a, credit: 0, debit: -n, details: `Refund · ${who} (${p.mode})`, source: "REFUND", mode: p.mode, orderId: p.orderId });
   }
   for (const s of pouts) rows.push({ date: s.payoutDate, seq: 1, account: "BANK", credit: Number(s.payout), debit: 0, details: `${s.platform} payout${s.notes ? ` · ${s.notes}` : ""}`, source: "PAYOUT", mode: s.platform });
   for (const e of exps) {
@@ -121,8 +121,13 @@ export async function moneyReport(tenantId: number, from: string, to: string) {
     return { ...r, cash: bal.CASH, bank: bal.BANK };
   });
   const sum = (f: (r: LedgerRow) => boolean, k: "credit" | "debit") => round2(rows.filter(f).reduce((s, r) => s + r[k], 0));
-  const byMode = new Map<string, number>();
-  for (const r of rows) if (r.source === "BILL" || r.source === "PAYOUT") byMode.set(r.mode ?? "", round2((byMode.get(r.mode ?? "") ?? 0) + r.credit));
+  const byMode = new Map<string, { received: number; refunded: number }>();
+  for (const r of rows) {
+    if (r.source !== "BILL" && r.source !== "PAYOUT" && r.source !== "REFUND") continue;
+    const m = byMode.get(r.mode ?? "") ?? { received: 0, refunded: 0 };
+    if (r.source === "REFUND") m.refunded = round2(m.refunded + r.debit); else m.received = round2(m.received + r.credit);
+    byMode.set(r.mode ?? "", m);
+  }
   const byCat = new Map<string, number>();
   for (const r of rows) if (r.source === "EXPENSE" || r.source === "VENDOR") byCat.set(r.category ?? "Other", round2((byCat.get(r.category ?? "Other") ?? 0) + r.debit));
   // day by day: money in / out and closing balances
@@ -139,10 +144,10 @@ export async function moneyReport(tenantId: number, from: string, to: string) {
     totals: {
       cashIn: sum((r) => r.account === "CASH", "credit"), cashOut: sum((r) => r.account === "CASH", "debit"),
       bankIn: sum((r) => r.account === "BANK", "credit"), bankOut: sum((r) => r.account === "BANK", "debit"),
-      sales: sum((r) => r.source === "BILL" || r.source === "PAYOUT", "credit"),
+      sales: round2(sum((r) => r.source === "BILL" || r.source === "PAYOUT", "credit") - sum((r) => r.source === "REFUND", "debit")),
       spent: sum((r) => r.source === "EXPENSE" || r.source === "VENDOR", "debit"),
     },
-    byMode: [...byMode].map(([mode, amount]) => ({ mode, amount })).sort((a, b) => b.amount - a.amount),
+    byMode: [...byMode].map(([mode, m]) => ({ mode, received: m.received, refunded: m.refunded, amount: round2(m.received - m.refunded) })).sort((a, b) => b.amount - a.amount),
     byCategory: [...byCat].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
     days: [...days.values()],
     hasOpening: Number(entryCount[0]?.n ?? 0) > 0,

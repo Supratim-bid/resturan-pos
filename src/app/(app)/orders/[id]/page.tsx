@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { activeGateway, GATEWAY_LABEL, type Gateway } from "@/lib/gateway";
 import { notFound } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -140,8 +141,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           </ul>
         ) : <p className="mb-3 text-sm text-muted">No payment yet.</p>}
         {o.status === "ACTIVE" && st.due > 0 && <PaymentForm orderId={o.id} due={st.due} modes={modes} today={todayIST()} />}
-        {o.status === "ACTIVE" && setting?.razorpayKeyId && (st.due > 0 || o.payLinkId) && (
-          <div className="mt-3"><PayLinkPanel orderId={o.id} link={o.payLinkShort} linkStatus={o.payLinkStatus} due={st.due} phone={o.customer?.phone ?? ""} restaurant={setting.name} billNo={o.billNo} /></div>
+        {o.status === "ACTIVE" && setting && u.features.includes("paymentGateways") && activeGateway(setting) && (st.due > 0 || o.payLinkId) && (
+          <div className="mt-3"><PayLinkPanel orderId={o.id} link={o.payLinkShort} linkStatus={o.payLinkStatus} due={st.due} phone={o.customer?.phone ?? ""} restaurant={setting.name} billNo={o.billNo} via={GATEWAY_LABEL[activeGateway(setting) as Gateway]} /></div>
         )}
       </Card>
       <Card title="Cancel bill" className="mt-4">

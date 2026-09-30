@@ -11,6 +11,20 @@ const pct = (name: string) => numeric(name, { precision: 6, scale: 2, mode: "num
 const day = (name: string) => date(name, { mode: "string" });
 
 // ---------- Platform: restaurants (tenants) & super admins ----------
+// SaaS plans (Starter / Growth / Pro …) - which features and how many logins each includes
+export const plans = pgTable("plans", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  price: money("price").notNull().default(0),            // per month, for your reference
+  maxUsers: integer("max_users").notNull().default(0),   // 0 = no limit
+  features: text("features").array().notNull().default([]),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const tenants = pgTable("tenants", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -19,9 +33,11 @@ export const tenants = pgTable("tenants", {
   contactName: text("contact_name").notNull().default(""),
   contactEmail: text("contact_email").notNull().default(""),
   contactPhone: text("contact_phone").notNull().default(""),
-  plan: text("plan").notNull().default("Standard"),
-  features: text("features").array().notNull().default([]), // extra features switched on by the super admin, e.g. "preorders"
+  plan: text("plan").notNull().default("starter"),        // plans.key
+  features: text("features").array().notNull().default([]), // add-ons on top of the plan, switched on by the super admin
   featuresOff: text("features_off").array().notNull().default([]), // features the owner switched off for now (still allowed by super admin)
+  featuresRemoved: text("features_removed").array().notNull().default([]), // taken out of this restaurant's plan by the super admin
+  maxUsers: integer("max_users"),                                  // login limit for this restaurant (null = the plan's limit)
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -138,6 +154,20 @@ export const settings = pgTable("settings", {
   razorpayKeyId: text("razorpay_key_id").notNull().default(""),
   razorpayKeySecret: text("razorpay_key_secret").notNull().default(""),       // stored encrypted
   razorpayWebhookSecret: text("razorpay_webhook_secret").notNull().default(""), // stored encrypted
+  // public policy pages /<code>/info/... (blank = the ready-made text)
+  policyTerms: text("policy_terms").notNull().default(""),
+  policyRefund: text("policy_refund").notNull().default(""),
+  policyDelivery: text("policy_delivery").notNull().default(""),
+  policyPrivacy: text("policy_privacy").notNull().default(""),
+  policyContactNote: text("policy_contact_note").notNull().default(""),
+  payGateway: text("pay_gateway").notNull().default(""),               // which gateway makes payment links: "" | razorpay | instamojo | cashfree
+  instamojoClientId: text("instamojo_client_id").notNull().default(""),
+  instamojoClientSecret: text("instamojo_client_secret").notNull().default(""), // stored encrypted
+  instamojoSalt: text("instamojo_salt").notNull().default(""),                  // stored encrypted (checks webhooks)
+  instamojoTest: boolean("instamojo_test").notNull().default(false),            // test.instamojo.com sandbox
+  cashfreeAppId: text("cashfree_app_id").notNull().default(""),
+  cashfreeSecret: text("cashfree_secret").notNull().default(""),                // stored encrypted
+  cashfreeTest: boolean("cashfree_test").notNull().default(false),              // sandbox.cashfree.com
 });
 
 export const roleEnum = pgEnum("role", ["OWNER", "MANAGER", "CASHIER", "KITCHEN"]);
@@ -341,6 +371,7 @@ export const orders = pgTable("orders", {
   payLinkShort: text("pay_link_short").notNull().default(""),
   payLinkAmount: money("pay_link_amount"),
   payLinkStatus: text("pay_link_status").notNull().default(""),
+  payLinkProvider: text("pay_link_provider").notNull().default(""), // razorpay | instamojo | cashfree
   createdById: integer("created_by_id").references(() => users.id),
 }, (t) => [
   uniqueIndex("orders_tenant_bill").on(t.tenantId, t.billNo),

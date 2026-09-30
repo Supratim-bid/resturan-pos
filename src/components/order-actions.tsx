@@ -119,8 +119,8 @@ export function CancelPanel({ orderId, status, cancelStatus, canApprove, paid = 
 }
 
 /** Razorpay payment link for the amount due */
-export function PayLinkPanel({ orderId, link, linkStatus, due, phone, restaurant, billNo }: {
-  orderId: number; link: string; linkStatus: string; due: number; phone: string; restaurant: string; billNo: string;
+export function PayLinkPanel({ orderId, link, linkStatus, due, phone, restaurant, billNo, via = "" }: {
+  orderId: number; link: string; linkStatus: string; due: number; phone: string; restaurant: string; billNo: string; via?: string;
 }) {
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [url, setUrl] = useState(link);
@@ -131,8 +131,8 @@ export function PayLinkPanel({ orderId, link, linkStatus, due, phone, restaurant
   return (
     <div className="space-y-2 rounded-xl border border-line p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold">💳 Online payment link</span>
-        {linkStatus && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${linkStatus === "paid" ? "bg-emerald-100 text-emerald-800" : "bg-gold-light text-ink"}`}>{linkStatus}</span>}
+        <span className="text-sm font-semibold">💳 Online payment link{via ? ` · ${via}` : ""}</span>
+        {linkStatus && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${["paid", "PAID", "Completed"].includes(linkStatus) ? "bg-emerald-100 text-emerald-800" : "bg-gold-light text-ink"}`}>{linkStatus}</span>}
       </div>
       {url && <div className="break-all rounded-lg bg-cream px-2 py-1 font-mono text-xs">{url}</div>}
       <div className="flex flex-wrap gap-2">

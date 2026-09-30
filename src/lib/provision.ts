@@ -42,7 +42,7 @@ export async function provisionTenant(db: DB, t: NewTenant) {
   return db.transaction(async (tx) => {
     const [row] = await tx.insert(schema.tenants).values({
       name: t.name.trim(), code, contactName: t.ownerName.trim(), contactEmail: t.contactEmail?.trim() ?? "",
-      contactPhone: t.contactPhone?.trim() ?? "", plan: t.plan?.trim() || "Standard", notes: t.notes ?? "",
+      contactPhone: t.contactPhone?.trim() ?? "", plan: t.plan?.trim() || "starter", notes: t.notes ?? "",
     }).returning();
     const tenantId = row.id;
     await tx.insert(schema.settings).values({

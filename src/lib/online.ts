@@ -1,5 +1,5 @@
 import "server-only";
-import { activeFeatures } from "./features";
+import { featureInfo, tenantWithPlan } from "./plans";
 import crypto from "node:crypto";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -14,8 +14,10 @@ export type OnlineLine = { menuItemId: number; name: string; qty: number; rate: 
 /** Everything the public order page needs, or null when this restaurant doesn't take online orders */
 export async function loadStorefront(codeRaw: string) {
   const code = codeRaw.trim().toLowerCase();
-  const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.code, code) });
-  if (!t || !t.active || !activeFeatures(t).includes("onlineOrders")) return null;
+  const tp = await tenantWithPlan({ code });
+  if (!tp) return null;
+  const t = tp.t, feats = featureInfo(t, tp.plan).active;
+  if (!t.active || !feats.includes("onlineOrders")) return null;
   const [s, items, slots] = await Promise.all([
     db.query.settings.findFirst({ where: eq(schema.settings.tenantId, t.id) }),
     db.query.menuItems.findMany({ where: and(eq(schema.menuItems.tenantId, t.id), eq(schema.menuItems.active, true), eq(schema.menuItems.available, true)), with: { category: true } }),
@@ -24,7 +26,7 @@ export async function loadStorefront(codeRaw: string) {
   if (!s) return null;
   items.sort((a, b) => a.category.sortOrder - b.category.sortOrder || a.category.name.localeCompare(b.category.name) || a.name.localeCompare(b.name));
   const dishes: StoreDish[] = items.map((i) => ({ id: i.id, name: i.name, price: Number(i.price), category: i.category.name, vegType: i.vegType, imageId: i.imageId }));
-  const preorderOk = s.onlinePreorder && activeFeatures(t).includes("preorders");
+  const preorderOk = s.onlinePreorder && feats.includes("preorders");
   const payUpi = s.onlinePayUpi && !!(s.upiId || s.qrImageId); // UPI needs a UPI ID or QR in Settings
   const payCash = s.onlinePayCash;
   return {

@@ -1,12 +1,12 @@
 import { and, eq } from "drizzle-orm";
-import { activeFeatures } from "@/lib/features";
+import { featureInfo, tenantWithPlan } from "@/lib/plans";
 import { cookies } from "next/headers";
 import { db, schema } from "@/db";
 import { COOKIE, verifySession } from "@/lib/session";
 
 async function onlinePublicImage(tenantId: number, id: number) {
-  const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, tenantId) });
-  if (!t?.active || !activeFeatures(t).includes("onlineOrders")) return false;
+  const tp = await tenantWithPlan({ id: tenantId });
+  if (!tp?.t.active || !featureInfo(tp.t, tp.plan).active.includes("onlineOrders")) return false;
   const dish = await db.query.menuItems.findFirst({ where: and(eq(schema.menuItems.tenantId, tenantId), eq(schema.menuItems.imageId, id), eq(schema.menuItems.active, true)) });
   if (dish) return true;
   return !!(await db.query.settings.findFirst({ where: and(eq(schema.settings.tenantId, tenantId), eq(schema.settings.qrImageId, id)) }));

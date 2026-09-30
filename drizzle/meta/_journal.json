@@ -71,6 +71,27 @@
       "when": 1790789719507,
       "tag": "0009_money",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790793240708,
+      "tag": "0010_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790793471113,
+      "tag": "0011_gateways",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790794774829,
+      "tag": "0012_policies",
+      "breakpoints": true
     }
   ]
 }

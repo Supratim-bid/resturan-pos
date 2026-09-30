@@ -76,9 +76,9 @@ export async function GET(req: Request) {
   line("- Money out (debit)", r.totals.cashOut, r.totals.bankOut);
   S.addRow(["Closing balance", { formula: "B5+B6-B7", result: r.closing.CASH }, { formula: "C5+C6-C7", result: r.closing.BANK }, { formula: "B8+C8", result: r.closing.CASH + r.closing.BANK }]).font = { bold: true };
   S.addRow([]);
-  S.addRow(["Received by mode", "Amount"]).font = { bold: true };
+  S.addRow(["Received by mode (after refunds)", "Net", "Received", "Refunded"]).font = { bold: true };
   const m0 = S.rowCount + 1;
-  for (const m of r.byMode) S.addRow([m.mode, m.amount]);
+  for (const m of r.byMode) S.addRow([m.mode, m.amount, m.received, m.refunded]);
   S.addRow(["Total received", { formula: `SUM(B${m0}:B${Math.max(m0, S.rowCount)})`, result: r.totals.sales }]).font = { bold: true };
   S.addRow([]);
   S.addRow(["Spent (expenses & vendors, paid)", "Amount"]).font = { bold: true };

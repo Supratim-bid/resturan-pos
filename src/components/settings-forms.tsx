@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createUserAction, saveSettingsAction, savePaymentSettingsAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
+import { createUserAction, saveSettingsAction, savePaymentSettingsAction, savePoliciesAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
 import { Modal } from "./crud";
 import { MODULES, POWERS, ROLE_DEFAULTS, ROLE_LABEL, type PermKey, type Role } from "@/lib/permissions";
 import { FEATURE_TABS, FEATURES, type FeatureKey } from "@/lib/features";
@@ -220,45 +220,83 @@ export function UsersManager({ users, meId, features = [] }: { users: U[]; meId:
 }
 
 // ---------------- Online payments (UPI link / Razorpay) ----------------
-export function PaymentSettings({ initial, hasSecret, hasWebhook, webhookUrl }: {
-  initial: { payLinkUrl: string; razorpayKeyId: string }; hasSecret: boolean; hasWebhook: boolean; webhookUrl: string;
-}) {
-  const [v, setV] = useState({ ...initial, razorpayKeySecret: "", razorpayWebhookSecret: "" });
+type PayInit = { payLinkUrl: string; payGateway: string; razorpayKeyId: string; instamojoClientId: string; instamojoTest: boolean; cashfreeAppId: string; cashfreeTest: boolean };
+type PaySaved = { razorpaySecret: boolean; razorpayWebhook: boolean; instamojoSecret: boolean; instamojoSalt: boolean; cashfreeSecret: boolean };
+export function PaymentSettings({ initial, saved, origin, gatewaysAllowed = true }: { initial: PayInit; saved: PaySaved; origin: string; gatewaysAllowed?: boolean }) {
+  const [v, setV] = useState({ ...initial, razorpayKeySecret: "", razorpayWebhookSecret: "", instamojoClientSecret: "", instamojoSalt: "", cashfreeSecret: "" });
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
+  const set = (k: keyof typeof v, x: string | boolean) => setV((o) => ({ ...o, [k]: x }));
+  const secret = (k: keyof typeof v, label: string, has: boolean, ph = "") => (
+    <div><label className="label">{label}</label><input className="input font-mono" type="password" autoComplete="new-password" value={String(v[k])} placeholder={has ? "saved - leave blank to keep" : ph} onChange={(e) => set(k, e.target.value.trim())} /></div>
+  );
+  const G = [
+    { k: "", label: "None", hint: "UPI QR only" },
+    { k: "razorpay", label: "Razorpay", hint: "cards, UPI, net banking" },
+    { k: "instamojo", label: "Instamojo", hint: "payment requests" },
+    { k: "cashfree", label: "Cashfree", hint: "payment links" },
+  ];
   return (
     <form onSubmit={(e) => { e.preventDefault(); start(async () => {
       const r = await savePaymentSettingsAction(v);
       setMsg(r.ok ? { ok: true, t: "Saved." } : { ok: false, t: r.error });
-      if (r.ok) { setV((s) => ({ ...s, razorpayKeySecret: "", razorpayWebhookSecret: "" })); router.refresh(); }
+      if (r.ok) { setV((s) => ({ ...s, razorpayKeySecret: "", razorpayWebhookSecret: "", instamojoClientSecret: "", instamojoSalt: "", cashfreeSecret: "" })); router.refresh(); }
     }); }}>
       <div className="space-y-4">
         <div className="rounded-xl bg-cream p-3 text-xs leading-relaxed">
-          <b>UPI QR (free):</b> put your UPI ID in <i>Restaurant &amp; bill details</i> above. Every bill gets a QR with the amount filled in.
+          <b>UPI QR (free):</b> put your UPI ID in <i>Restaurant &amp; bill details</i> below. Every bill gets a QR with the amount filled in.
           Staff mark the payment as UPI after checking your UPI app.
         </div>
         <div>
           <label className="label">Fixed payment page link (optional)</label>
-          <input className="input" value={v.payLinkUrl} placeholder="e.g. https://razorpay.me/@alooposto" onChange={(e) => setV({ ...v, payLinkUrl: e.target.value })} />
-          <p className="mt-1 text-[11px] text-muted">Any “pay us” page (Razorpay.me, PhonePe / Paytm business link, Instamojo…). Printed as a QR when there is no UPI ID, and added to WhatsApp bills.</p>
+          <input className="input" value={v.payLinkUrl} placeholder="e.g. https://razorpay.me/@alooposto" onChange={(e) => set("payLinkUrl", e.target.value)} />
+          <p className="mt-1 text-[11px] text-muted">Any “pay us” page (Razorpay.me, PhonePe / Paytm business link, Instamojo…). Printed as a QR when there is no UPI ID.</p>
         </div>
-        <div className="rounded-xl border border-line p-3">
-          <h4 className="text-sm font-bold">Razorpay payment gateway (cards, UPI, net banking, wallets)</h4>
-          <p className="mb-3 mt-1 text-[11px] text-muted">
-            Razorpay Dashboard → Account &amp; Settings → API Keys. With keys saved, every order gets a <b>“Payment link”</b> button: the exact amount due, sent on WhatsApp/SMS,
-            and the bill is marked paid automatically when the customer pays. Use <b>rzp_test_…</b> keys to try it first. Razorpay charges its own fee per payment.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div><label className="label">Key ID</label><input className="input font-mono" value={v.razorpayKeyId} placeholder="rzp_live_…" onChange={(e) => setV({ ...v, razorpayKeyId: e.target.value.trim() })} /></div>
-            <div><label className="label">Key secret</label><input className="input font-mono" type="password" autoComplete="new-password" value={v.razorpayKeySecret} placeholder={hasSecret ? "saved - leave blank to keep" : ""} onChange={(e) => setV({ ...v, razorpayKeySecret: e.target.value.trim() })} /></div>
-            <div className="sm:col-span-2"><label className="label">Webhook secret (optional, for instant “paid”)</label>
-              <input className="input font-mono" type="password" autoComplete="new-password" value={v.razorpayWebhookSecret} placeholder={hasWebhook ? "saved - leave blank to keep" : "any password you choose"} onChange={(e) => setV({ ...v, razorpayWebhookSecret: e.target.value.trim() })} />
-              <p className="mt-1 text-[11px] text-muted">Razorpay → Webhooks → Add: URL <span className="break-all font-mono">{webhookUrl}</span>, event <b>payment_link.paid</b>, same secret.
-                Only works once the app is online (not on localhost). Without it, tap “Check payment” on the order.</p></div>
+        {!gatewaysAllowed ? (
+          <div className="rounded-xl border border-line p-3 text-sm text-muted">Payment gateways (Razorpay, Instamojo, Cashfree links marked paid automatically) are not in your plan. Ask the platform admin to add them.</div>
+        ) : (
+          <div className="rounded-xl border border-line p-3">
+            <h4 className="text-sm font-bold">Payment gateway for payment links</h4>
+            <p className="mb-3 mt-1 text-[11px] text-muted">With a gateway set up, every order gets a <b>“Payment link”</b> button for the exact amount due; the bill is marked paid automatically when the customer pays. Each gateway charges its own fee per payment. Try test / sandbox keys first.</p>
+            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {G.map((g) => (
+                <label key={g.k} className={`cursor-pointer rounded-xl border p-2 text-sm ${v.payGateway === g.k ? "border-brand bg-gold-light/40" : "border-line"}`}>
+                  <input type="radio" name="gw" className="mr-1 accent-[var(--color-brand)]" checked={v.payGateway === g.k} onChange={() => set("payGateway", g.k)} /><b>{g.label}</b>
+                  <span className="block text-[11px] text-muted">{g.hint}</span>
+                </label>
+              ))}
+            </div>
+            {v.payGateway === "razorpay" && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <p className="text-[11px] text-muted sm:col-span-2">Razorpay Dashboard → Account &amp; Settings → API Keys. Use <b>rzp_test_…</b> keys to try it.</p>
+                <div><label className="label">Key ID</label><input className="input font-mono" value={v.razorpayKeyId} placeholder="rzp_live_…" onChange={(e) => set("razorpayKeyId", e.target.value.trim())} /></div>
+                {secret("razorpayKeySecret", "Key secret", saved.razorpaySecret)}
+                <div className="sm:col-span-2">{secret("razorpayWebhookSecret", "Webhook secret (optional, for instant “paid”)", saved.razorpayWebhook, "any password you choose")}
+                  <p className="mt-1 text-[11px] text-muted">Razorpay → Webhooks → Add: URL <span className="break-all font-mono">{origin}/api/pay/razorpay</span>, event <b>payment_link.paid</b>, same secret.</p></div>
+              </div>
+            )}
+            {v.payGateway === "instamojo" && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <p className="text-[11px] text-muted sm:col-span-2">Instamojo dashboard → <b>API &amp; Plugins</b> → Generate credentials (Client ID, Client Secret) and copy the <b>Private Salt</b>. For testing, make an account on test.instamojo.com and tick “Test mode”.</p>
+                <div><label className="label">Client ID</label><input className="input font-mono" value={v.instamojoClientId} onChange={(e) => set("instamojoClientId", e.target.value.trim())} /></div>
+                {secret("instamojoClientSecret", "Client secret", saved.instamojoSecret)}
+                {secret("instamojoSalt", "Private salt (checks “paid” messages)", saved.instamojoSalt)}
+                <label className="flex items-end gap-2 pb-3 text-sm"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={v.instamojoTest} onChange={(e) => set("instamojoTest", e.target.checked)} />Test mode (test.instamojo.com)</label>
+                <p className="text-[11px] text-muted sm:col-span-2">“Paid” arrives automatically at <span className="break-all font-mono">{origin}/api/pay/instamojo</span> (only once the app is online on https). Otherwise tap “Check payment” on the order.</p>
+              </div>
+            )}
+            {v.payGateway === "cashfree" && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <p className="text-[11px] text-muted sm:col-span-2">Cashfree Merchant Dashboard → Developers → <b>API Keys</b> (Payment Gateway). Sandbox keys work with “Test mode”.</p>
+                <div><label className="label">App ID (client id)</label><input className="input font-mono" value={v.cashfreeAppId} onChange={(e) => set("cashfreeAppId", e.target.value.trim())} /></div>
+                {secret("cashfreeSecret", "Secret key", saved.cashfreeSecret)}
+                <label className="flex items-end gap-2 pb-3 text-sm"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={v.cashfreeTest} onChange={(e) => set("cashfreeTest", e.target.checked)} />Test mode (sandbox)</label>
+                <p className="text-[11px] text-muted sm:col-span-2">Cashfree sends “paid” to <span className="break-all font-mono">{origin}/api/pay/cashfree</span> automatically for each link (https only). Otherwise tap “Check payment” on the order.</p>
+              </div>
+            )}
           </div>
-          <p className="mt-2 text-[11px] text-muted">To switch Razorpay off, clear the Key ID and save (saved secrets are deleted too).</p>
-        </div>
+        )}
       </div>
       {msg && <p className={`mt-3 rounded-lg px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{msg.t}</p>}
       <button className="btn-primary mt-4" disabled={pending}>{pending ? "Saving…" : "Save payment settings"}</button>
@@ -273,7 +311,7 @@ export function OwnFeatures({ allowed, off: initialOff }: { allowed: string[]; o
   const [pending, start] = useTransition();
   const router = useRouter();
   const keys = allowed.filter((k): k is FeatureKey => k in FEATURES);
-  if (!keys.length) return <p className="text-sm text-muted">No extra features yet. Ask the platform admin for Pre-orders, KOT (kitchen screen) or Online ordering.</p>;
+  if (!keys.length) return <p className="text-sm text-muted">No extra features in your plan yet. Ask the platform admin to upgrade.</p>;
   return (
     <div className="space-y-2">
       {keys.map((k) => {
@@ -290,6 +328,72 @@ export function OwnFeatures({ allowed, off: initialOff }: { allowed: string[]; o
         );
       })}
       {msg && <p className={`text-sm ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</p>}
+    </div>
+  );
+}
+
+type PolicyRow = { kind: string; title: string; field: string; url: string; value: string; ready: string };
+/** Owner: public website / policy pages that payment gateways ask for */
+export function PolicyPages({ orderUrl, rows }: { orderUrl: string; rows: PolicyRow[] }) {
+  const [v, setV] = useState(Object.fromEntries(rows.map((r) => [r.field, r.value])) as Record<string, string>);
+  const [open, setOpen] = useState("");
+  const [copied, setCopied] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const copy = (x: string) => navigator.clipboard?.writeText(x).then(() => { setCopied(x); setTimeout(() => setCopied(""), 1500); });
+  const url = (k: string) => rows.find((r) => r.kind === k)?.url ?? "";
+  const line = (label: string, value: string, isLink = true) => (
+    <div className="flex flex-wrap items-center gap-2 border-b border-line py-1.5 text-sm last:border-0">
+      <span className="w-52 shrink-0 text-muted">{label}</span>
+      {isLink ? <a className="break-all font-mono text-xs text-brand underline" href={value} target="_blank" rel="noreferrer">{value}</a> : <b>{value}</b>}
+      {isLink && <button type="button" className="btn-ghost btn-sm !py-0.5" onClick={() => copy(value)}>{copied === value ? "Copied ✓" : "Copy"}</button>}
+    </div>
+  );
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted">Payment gateways (Instamojo, Razorpay, Cashfree) ask for a website and these policy pages before they switch on payments. Your restaurant already has them - copy the answers below into their form.</p>
+      <div className="rounded-xl bg-cream p-3">
+        <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Answers for the gateway form</div>
+        {line("Do you have a website?", "Yes", false)}
+        {line("Website URL", orderUrl)}
+        {line("Public contact details", url("contact"))}
+        {line("Terms and conditions", url("terms"))}
+        {line("Refund and cancellation policy", url("refund"))}
+        {line("Shipping and delivery policy", url("delivery"))}
+        {line("Privacy policy (if asked)", url("privacy"))}
+        {line("Website shows prices?", "Yes (the menu shows prices)", false)}
+        {line("Website has a pay button?", "Yes (customers pay by UPI / payment link)", false)}
+        <p className="mt-2 text-[11px] text-muted">For “Shipping and delivery” untick “Not applicable” - you deliver food, so give the delivery link. Business category: Food &amp; beverages / Restaurant.</p>
+      </div>
+      <form onSubmit={(e) => { e.preventDefault(); start(async () => {
+        const r = await savePoliciesAction(v as never);
+        setMsg(r.ok ? { ok: true, t: "Saved. The pages show your text now." } : { ok: false, t: r.error }); if (r.ok) router.refresh();
+      }); }} className="space-y-2">
+        <div className="text-xs font-bold uppercase tracking-wide text-muted">Page text</div>
+        {rows.map((r) => (
+          <div key={r.kind} className="rounded-xl border border-line">
+            <button type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold" onClick={() => setOpen(open === r.kind ? "" : r.kind)}>
+              <span>{r.title} <span className="font-normal text-muted">· {v[r.field]?.trim() ? "your own text" : r.kind === "contact" ? "from your restaurant details" : "ready-made text"}</span></span><span>{open === r.kind ? "▲" : "▼"}</span>
+            </button>
+            {open === r.kind && (
+              <div className="space-y-2 border-t border-line p-3">
+                {r.kind === "contact" ? <p className="text-xs text-muted">Name, address, phones, WhatsApp, email, GSTIN and FSSAI come from Restaurant details. Add anything extra (opening hours, a map link):</p>
+                  : <p className="text-xs text-muted">Leave empty to use the ready-made text (it updates itself from your settings). To change it, start from the ready-made text and edit. Use “## ” for a heading and “- ” for a point.</p>}
+                <textarea className="input min-h-[220px] font-mono text-xs" value={v[r.field] ?? ""} placeholder={r.kind === "contact" ? "e.g. Open 11 am - 11 pm, closed on Mondays" : "(using the ready-made text)"} onChange={(e) => setV({ ...v, [r.field]: e.target.value })} aria-label={`${r.title} text`} />
+                <div className="flex flex-wrap gap-2">
+                  {r.kind !== "contact" && <button type="button" className="btn-ghost btn-sm" onClick={() => setV({ ...v, [r.field]: r.ready })}>Start from ready-made text</button>}
+                  {v[r.field] && <button type="button" className="btn-ghost btn-sm" onClick={() => setV({ ...v, [r.field]: "" })}>Use ready-made text again</button>}
+                  <a className="btn-ghost btn-sm" href={r.url} target="_blank" rel="noreferrer">View page</a>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {msg && <p className={`rounded-lg px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{msg.t}</p>}
+        <button className="btn-primary" disabled={pending}>{pending ? "Saving…" : "Save page text"}</button>
+        <p className="text-[11px] text-muted">The ready-made text is a starting point, not legal advice - read it once and change anything that does not match how you work.</p>
+      </form>
     </div>
   );
 }

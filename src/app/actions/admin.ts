@@ -13,7 +13,7 @@ import { envAdminEmails, syncEnvAdmins } from "@/lib/admin-env";
 import { assertNotLocked, clearFailures, clientIp, recordFailure } from "@/lib/throttle";
 import { addSampleData, provisionTenant, USERNAME_RE, CODE_RE } from "@/lib/provision";
 import { RESERVED_PATHS } from "@/lib/reserved";
-import { FEATURE_KEYS, type FeatureKey } from "@/lib/features";
+import { FEATURE_KEYS, isComingSoon, type FeatureKey } from "@/lib/features";
 
 type R = { ok: true; msg?: string } | { ok: false; error: string };
 const err = (e: unknown): R => ({ ok: false, error: /unique|duplicate/i.test(String(e) + String((e as { cause?: unknown })?.cause ?? "")) ? "That username or code is already used." : String((e as Error).message).replace(/^Error:\s*/, "") });
@@ -114,38 +114,94 @@ export async function createTenantAction(v: {
 }): Promise<R & { id?: number }> {
   try {
     await requireAdmin();
-    const t = await provisionTenant(db, v);
+    const plan = v.plan ? await db.query.plans.findFirst({ where: eq(schema.plans.key, v.plan) }) : null;
+    const t = await provisionTenant(db, { ...v, plan: plan?.key ?? "starter" });
     if (v.sample) await addSampleData(db, t.id);
     revalidatePath("/admin");
     return { ok: true, id: t.id };
   } catch (e) { return err(e); }
 }
 
-export async function updateTenantAction(id: number, v: { name: string; code: string; plan: string; contactName: string; contactEmail: string; contactPhone: string; notes: string }): Promise<R> {
+export async function updateTenantAction(id: number, v: { name: string; code: string; contactName: string; contactEmail: string; contactPhone: string; notes: string }): Promise<R> {
   try {
     await requireAdmin();
     const code = v.code.trim().toLowerCase();
     if (!CODE_RE.test(code)) throw new Error("Restaurant code: 2-31 lowercase letters, numbers or dashes.");
     if (RESERVED_PATHS.includes(code)) throw new Error(`"${code}" is used by the app itself - pick another code.`);
-    await db.update(schema.tenants).set({ name: v.name.trim(), code, plan: v.plan, contactName: v.contactName, contactEmail: v.contactEmail, contactPhone: v.contactPhone, notes: v.notes }).where(eq(schema.tenants.id, id));
+    await db.update(schema.tenants).set({ name: v.name.trim(), code, contactName: v.contactName, contactEmail: v.contactEmail, contactPhone: v.contactPhone, notes: v.notes }).where(eq(schema.tenants.id, id));
     revalidatePath(`/admin/restaurants/${id}`);
     return { ok: true, msg: "Saved." };
   } catch (e) { return err(e); }
 }
 
-/** Switch an extra feature (e.g. pre-orders) on or off for one restaurant */
+/** Allow or stop one feature for one restaurant (on top of / out of its plan) */
 export async function setTenantFeatureAction(id: number, feature: FeatureKey, on: boolean): Promise<R> {
   try {
     await requireAdmin();
     if (!FEATURE_KEYS.includes(feature)) throw new Error("Unknown feature.");
+    if (isComingSoon(feature)) throw new Error("This feature is not ready yet.");
     const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, id) });
     if (!t) throw new Error("Restaurant not found.");
-    const next = new Set(t.features ?? []);
-    if (on) next.add(feature); else next.delete(feature);
-    // granting a feature also switches it on for the owner (they can turn it off again in Settings)
-    await db.update(schema.tenants).set({ features: [...next], featuresOff: (t.featuresOff ?? []).filter((f) => !(on && f === feature)) }).where(eq(schema.tenants.id, id));
+    const plan = await db.query.plans.findFirst({ where: eq(schema.plans.key, t.plan) });
+    const inPlan = (plan?.features ?? []).includes(feature);
+    const add = new Set(t.features ?? []), removed = new Set(t.featuresRemoved ?? []);
+    if (on) { removed.delete(feature); if (!inPlan) add.add(feature); }
+    else { add.delete(feature); if (inPlan) removed.add(feature); }
+    // allowing a feature also switches it on for the owner (they can turn it off again in Settings)
+    await db.update(schema.tenants).set({ features: [...add], featuresRemoved: [...removed], featuresOff: (t.featuresOff ?? []).filter((f) => !(on && f === feature)) }).where(eq(schema.tenants.id, id));
     revalidatePath(`/admin/restaurants/${id}`); revalidatePath("/admin");
-    return { ok: true, msg: on ? "Switched on." : "Switched off." };
+    return { ok: true, msg: on ? (inPlan ? "Allowed (in plan)." : "Added as an add-on.") : (inPlan ? "Removed from this restaurant's plan." : "Add-on removed.") };
+  } catch (e) { return err(e); }
+}
+
+/** Change a restaurant's plan (and optional login limit). Per-restaurant add-ons/removals are kept. */
+export async function setTenantPlanAction(id: number, planKey: string, maxUsers: string): Promise<R> {
+  try {
+    await requireAdmin();
+    const plan = await db.query.plans.findFirst({ where: eq(schema.plans.key, planKey) });
+    if (!plan) throw new Error("Pick a plan.");
+    const m = maxUsers.trim() === "" ? null : Math.round(Number(maxUsers));
+    if (m != null && (!Number.isFinite(m) || m < 0 || m > 999)) throw new Error("Login limit must be 0-999 (blank = plan's limit).");
+    await db.update(schema.tenants).set({ plan: plan.key, maxUsers: m }).where(eq(schema.tenants.id, id));
+    revalidatePath(`/admin/restaurants/${id}`); revalidatePath("/admin");
+    return { ok: true, msg: `Plan: ${plan.name}.` };
+  } catch (e) { return err(e); }
+}
+
+// ---------- plans ----------
+const PLAN_KEY = /^[a-z0-9-]{2,30}$/;
+export async function savePlanAction(v: { id?: number; key: string; name: string; description: string; price: string | number; maxUsers: string | number; features: string[]; sortOrder?: string | number; active: boolean }): Promise<R> {
+  try {
+    await requireAdmin();
+    const name = v.name.trim();
+    if (!name) throw new Error("Give the plan a name.");
+    const price = Number(v.price || 0), maxUsers = Math.round(Number(v.maxUsers || 0));
+    if (!Number.isFinite(price) || price < 0) throw new Error("Price must be a number.");
+    if (!Number.isFinite(maxUsers) || maxUsers < 0) throw new Error("Logins must be 0 (no limit) or more.");
+    const features = [...new Set(v.features)].filter((f) => (FEATURE_KEYS as string[]).includes(f));
+    const vals = { name, description: v.description.trim().slice(0, 200), price, maxUsers, features, sortOrder: Math.round(Number(v.sortOrder || 0)), active: !!v.active };
+    if (v.id) {
+      await db.update(schema.plans).set(vals).where(eq(schema.plans.id, v.id));
+    } else {
+      const key = v.key.trim().toLowerCase();
+      if (!PLAN_KEY.test(key)) throw new Error("Plan code: 2-30 lowercase letters, numbers or dashes (e.g. premium).");
+      await db.insert(schema.plans).values({ key, ...vals });
+    }
+    revalidatePath("/admin/plans"); revalidatePath("/admin");
+    return { ok: true, msg: "Plan saved." };
+  } catch (e) { return err(e); }
+}
+
+export async function deletePlanAction(id: number): Promise<R> {
+  try {
+    await requireAdmin();
+    const p = await db.query.plans.findFirst({ where: eq(schema.plans.id, id) });
+    if (!p) throw new Error("Plan not found.");
+    const [u] = await db.select({ n: sql<number>`count(*)` }).from(schema.tenants).where(eq(schema.tenants.plan, p.key));
+    if (Number(u.n) > 0) throw new Error(`${Number(u.n)} restaurant(s) use this plan. Move them to another plan first, or untick "Offered" instead.`);
+    await db.delete(schema.plans).where(eq(schema.plans.id, id));
+    revalidatePath("/admin/plans");
+    return { ok: true, msg: "Plan deleted." };
   } catch (e) { return err(e); }
 }
 

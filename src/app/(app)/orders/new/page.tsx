@@ -14,6 +14,8 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
   return (
     <Pos
       {...d}
+      packaging={u.features.includes("packaging") ? d.packaging : []}
+      scanner={u.features.includes("packaging") && d.scanner}
       today={today}
       canPickDate={canEditAnyOrder(u)}
       allowPreorder={u.features.includes("preorders")}

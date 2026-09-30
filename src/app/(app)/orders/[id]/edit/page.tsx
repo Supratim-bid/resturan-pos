@@ -21,6 +21,8 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
   return (
     <Pos
       {...d}
+      packaging={u.features.includes("packaging") ? d.packaging : []}
+      scanner={u.features.includes("packaging") && d.scanner}
       today={todayIST()}
       canPickDate={canEditAnyOrder(u)}
       allowPreorder={u.features.includes("preorders")}

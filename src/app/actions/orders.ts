@@ -1,6 +1,7 @@
 "use server";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
 import { canEditAnyOrder } from "@/lib/permissions";
@@ -159,17 +160,20 @@ export async function quickCustomerAction(c: { name: string; phone: string; flat
   } catch (e) { return fail(e); }
 }
 
-/** Razorpay: make a payment link for what's due (reuses an open one) */
+/** Payment gateway (Razorpay / Instamojo / Cashfree): make a payment link for what's due (reuses an open one) */
 export async function createPayLinkAction(orderId: number): Promise<R<string>> {
   try {
     const u = await requireAction("orders");
-    const url = await createPaymentLink(u.tenantId, orderId);
+    if (!u.features.includes("paymentGateways")) throw new Error("Payment links are not in your plan.");
+    const h = await headers();
+    const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? ""}`;
+    const url = await createPaymentLink(u.tenantId, orderId, origin);
     revalidatePath(`/orders/${orderId}`);
     return { ok: true, data: url };
   } catch (e) { return fail(e); }
 }
 
-/** Razorpay: ask whether the link was paid and record the payment */
+/** Ask the gateway whether the link was paid and record the payment */
 export async function checkPayLinkAction(orderId: number): Promise<R<string>> {
   try {
     const u = await requireAction("orders");
