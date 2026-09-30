@@ -8,11 +8,11 @@ import { logout } from "../actions/auth";
 import { db, schema } from "@/db";
 
 const ICONS: Record<ModuleKey, string> = {
-  dashboard: "🏠", newOrder: "＋", orders: "🧾", preorders: "🗓️", customers: "👥", dailyMenu: "📅", menu: "🍛", recipes: "📖",
+  dashboard: "🏠", newOrder: "＋", orders: "🧾", preorders: "🗓️", onlineOrders: "📲", customers: "👥", dailyMenu: "📅", menu: "🍛", recipes: "📖",
   ingredients: "🧅", packaging: "📦", stock: "🏷️", wastage: "🗑️", expenses: "💸", vendors: "🚚", staff: "👨‍🍳",
   cash: "💰", settlements: "🛵", reports: "📊", reminders: "⏰", settings: "⚙️",
 };
-const SHORT: Partial<Record<ModuleKey, string>> = { preorders: "Pre-orders", newOrder: "New", dashboard: "Home", dailyMenu: "Today", orders: "Orders", customers: "Customers", cash: "Cash" };
+const SHORT: Partial<Record<ModuleKey, string>> = { onlineOrders: "Online", preorders: "Pre-orders", newOrder: "New", dashboard: "Home", dailyMenu: "Today", orders: "Orders", customers: "Customers", cash: "Cash" };
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();

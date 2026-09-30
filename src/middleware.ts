@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ADMIN_COOKIE, COOKIE, verifyAdmin, verifySession } from "@/lib/session";
-import { isRestaurantPath } from "@/lib/reserved";
+import { isPublicOrderPath, isRestaurantPath } from "@/lib/reserved";
 
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
@@ -14,6 +14,8 @@ export async function middleware(req: NextRequest) {
   // restaurant login link: /<restaurant-code>
   const seg = path.split("/").filter(Boolean);
   if (seg.length === 1 && isRestaurantPath(seg[0].toLowerCase())) return NextResponse.next();
+  // customers' online ordering pages (no login)
+  if (isPublicOrderPath(seg.map((x) => x.toLowerCase()))) return NextResponse.next();
   if (await verifySession(req.cookies.get(COOKIE)?.value)) return NextResponse.next();
   url.pathname = "/login";
   return NextResponse.redirect(url);

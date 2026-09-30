@@ -95,6 +95,16 @@ export const settings = pgTable("settings", {
   accentColor: text("accent_color").notNull().default("#c8962e"),
   receiptWidth: text("receipt_width").notNull().default("58"), // 58 (2 inch) or 80 (3 inch)
   scannerEnabled: boolean("scanner_enabled").notNull().default(false), // Bluetooth / USB barcode scanner on the order screen
+  // online ordering by customers (feature "onlineOrders")
+  onlineOpen: boolean("online_open").notNull().default(true),              // taking online orders right now
+  onlineClosedMsg: text("online_closed_msg").notNull().default("We are not taking online orders right now. Please try again later."),
+  onlineNote: text("online_note").notNull().default(""),                    // shown at the top of the order page
+  onlineDelivery: boolean("online_delivery").notNull().default(true),
+  onlineTakeaway: boolean("online_takeaway").notNull().default(true),
+  onlinePreorder: boolean("online_preorder").notNull().default(true),      // needs the Pre-orders feature too
+  onlineMinOrder: money("online_min_order").notNull().default(0),
+  onlineDeliveryType: text("online_delivery_type").notNull().default("Delivery"), // order type used when accepting
+  onlineTakeawayType: text("online_takeaway_type").notNull().default("Takeaway"),
   // bill design
   billShowLogo: boolean("bill_show_logo").notNull().default(true),
   billHeaderNote: text("bill_header_note").notNull().default(""),   // e.g. "100% homemade · No MSG"
@@ -334,6 +344,34 @@ export const orderPackaging = pgTable("order_packaging", {
   unitPrice: money("unit_price").notNull(), // charged to customer (0 unless the order charges packaging)
   unitCost: money("unit_cost").notNull(),   // your cost
 }, (t) => [index("order_packaging_order").on(t.orderId)]);
+
+// Orders placed by customers on the public order page; become real bills when staff accept them
+export const onlineOrders = pgTable("online_orders", {
+  id: serial("id").primaryKey(),
+  tenantId: tid(),
+  token: text("token").notNull().unique(),                  // secret link for the customer's status page
+  status: text("status").notNull().default("NEW"),          // NEW | ACCEPTED | REJECTED
+  customerId: integer("customer_id").references(() => customers.id),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  address: text("address").notNull().default(""),
+  kind: text("kind").notNull(),                             // DELIVERY | TAKEAWAY
+  isPreorder: boolean("is_preorder").notNull().default(false),
+  date: day("date").notNull(),                              // day the food is wanted
+  mealSlot: text("meal_slot").notNull().default(""),
+  slotTime: text("slot_time").notNull().default(""),
+  items: text("items").notNull(),                           // JSON [{menuItemId, name, qty, rate}]
+  estTotal: money("est_total").notNull(),
+  payMethod: text("pay_method").notNull(),                  // COD | UPI
+  upiRef: text("upi_ref").notNull().default(""),            // UTR / transaction id the customer typed
+  notes: text("notes").notNull().default(""),
+  rejectReason: text("reject_reason").notNull().default(""),
+  orderId: integer("order_id").references(() => orders.id), // the bill created on accept
+  decidedById: integer("decided_by_id"),
+  decidedAt: timestamp("decided_at"),
+  ip: text("ip").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("online_orders_tenant_status").on(t.tenantId, t.status, t.createdAt)]);
 
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),

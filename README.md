@@ -47,6 +47,23 @@ Admin → a restaurant → **Features**. Extra features are off until you switch
 - **Numbers:** with *Reuse the number of a cancelled bill* on (the default), AP-0002 cancelled becomes **AP-0002-CAN** and the next new bill gets **AP-0002**. Untick this in Settings to never reuse numbers. If you are GST-registered, confirm with your CA which your invoices should follow.
 - **Restore:** a restored bill keeps its old number if it's still free; otherwise it gets the next free number.
 
+## Online ordering by customers (feature "Online ordering")
+- The super admin switches it on per restaurant under Admin → restaurant → Features.
+- **Customers** open `https://<site>/<restaurant-code>/order` (e.g. `/alooposto/order`) on their phone. No login is needed.
+  - They pick dishes, then Delivery or Pick up, Now or Pre-order (date + meal).
+  - They give name + mobile number (and address for delivery), then pay on delivery/pickup or by UPI QR.
+  - Their status page updates by itself, and once the order is accepted they can download the bill PDF.
+- **Staff:** the **Online Orders** tab shows new orders, refreshing every 15 seconds with a sound alert. The dashboard also shows a banner.
+  - **Accept** turns the order into a normal bill: bill number, stock, customer dues. Tick "UPI payment received" to record a UPI payment.
+  - **Reject** needs a reason, which the customer sees.
+  - The **Taking orders / Closed** switch pauses ordering.
+- **Settings** on the same page: delivery / pickup / pre-orders, minimum order, top note, closed message, and which order types to use.
+- The **order link + QR** on that page can be printed or shared on WhatsApp and Instagram.
+- **Safety:**
+  - Prices always come from your menu, and sold-out dishes are hidden.
+  - At most 3 waiting orders per phone, 5 orders per phone and 10 per network in 15 minutes.
+  - Each customer's status link is a long secret code.
+
 ## Pre-orders (breakfast / lunch / dinner)
 - Needs the **Pre-orders** feature switched on by the super admin.
 - New Order → tap **🗓️ Pre-order (later)** at the top (or Orders → 🗓️ Pre-order), pick the **date** the food is served, the **meal** (Breakfast, Lunch, Evening Snacks, Dinner — edit in Settings → Dropdown lists → *Meal slots*) and a time.

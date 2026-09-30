@@ -35,6 +35,7 @@ export default async function Dashboard() {
     .innerJoin(schema.payments, eq(schema.payments.orderId, schema.orders.id))
     .where(and(eq(schema.orders.tenantId, T), eq(schema.orders.status, "CANCELLED"))).groupBy(schema.orders.id, schema.orders.billNo)
     .having(sql`sum(${schema.payments.amount}) > 0.5`).limit(10);
+  const onlineNew = can(u, "onlineOrders") ? Number((await db.select({ n: sql<number>`count(*)` }).from(schema.onlineOrders).where(and(eq(schema.onlineOrders.tenantId, T), eq(schema.onlineOrders.status, "NEW"))))[0].n) : 0;
   const cancelReqs = await db.query.orders.findMany({ where: and(eq(schema.orders.tenantId, T), eq(schema.orders.cancelStatus, "REQUESTED")), limit: 10 });
   const sq = new Map(stockRows.map((s) => [s.id, Number(s.q)]));
   const started = new Set(stockRows.filter((s) => s.started).map((s) => s.id));
@@ -58,6 +59,11 @@ export default async function Dashboard() {
   return (
     <div>
       <PageHeader title={`Namaskar, ${u.name.split(" ")[0]}`} subtitle={fmtDate(today)} actions={<LinkBtn href="/orders/new">+ New order</LinkBtn>} />
+      {onlineNew > 0 && (
+        <Link href="/online-orders" className="mb-4 flex items-center justify-between rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white shadow">
+          <span>📲 {onlineNew} new online order{onlineNew > 1 ? "s" : ""} waiting to be accepted</span><span>Open →</span>
+        </Link>
+      )}
       {(preToday > 0 || preTomorrow > 0) && (
         <Link href="/preorders" className="mb-4 flex items-center justify-between rounded-xl border border-gold bg-gold-light/50 px-4 py-2.5 text-sm font-semibold">
           <span>🗓️ Pre-orders to prepare: <b>{preToday}</b> today · <b>{preTomorrow}</b> tomorrow</span><span className="text-brand">Open →</span>
