@@ -1,19 +1,39 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createUserAction, saveSettingsAction, savePaymentSettingsAction, updateUserAction } from "@/app/actions/settings";
+import { createUserAction, saveSettingsAction, savePaymentSettingsAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
 import { Modal } from "./crud";
 import { MODULES, POWERS, ROLE_DEFAULTS, ROLE_LABEL, type PermKey, type Role } from "@/lib/permissions";
-import { FEATURE_TABS } from "@/lib/features";
+import { FEATURE_TABS, FEATURES, type FeatureKey } from "@/lib/features";
 
 // ---------------- Restaurant, bill & theme settings ----------------
 const F: [string, string, string?][] = [
-  ["name", "Restaurant name"], ["tagline", "Tagline"], ["address", "Address (prints on bill)"], ["phone", "Phone"], ["email", "Email"],
+  ["name", "Restaurant name"], ["tagline", "Tagline"], ["address", "Address (prints on bill)"], ["phone", "Main phone"], ["email", "Email"],
   ["gstin", "GSTIN (blank if not registered)"], ["fssai", "FSSAI licence no."], ["upiId", "UPI ID (QR on bill)", "e.g. yourname@okhdfc"],
   ["billFooter", "Bill footer"], ["gstRate", "GST % on bills", "5 for most restaurants; 0 if not registered - confirm with your CA"],
   ["priceMultiplier", "Price multiplier (suggested price = cost ×)", "e.g. 3"], ["platformCommission", "Swiggy/Zomato commission % (estimate)"],
   ["defaultDeliveryCharge", "Default delivery charge ₹"], ["defaultPackingCharge", "Default packing charge ₹ (non dine-in)"],
 ];
+/** Extra phone numbers (stored one per line) */
+function PhonesInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const list = value.split("\n");
+  const setAt = (i: number, x: string) => onChange(list.map((y, k) => (k === i ? x : y)).join("\n"));
+  const rows = value === "" ? [] : list;
+  return (
+    <div>
+      <label className="label">More phone numbers</label>
+      <div className="space-y-2">
+        {rows.map((p, i) => (
+          <div key={i} className="flex gap-2">
+            <input className="input" type="tel" value={p} aria-label={`Phone ${i + 2}`} onChange={(e) => setAt(i, e.target.value)} />
+            <button type="button" className="btn-ghost btn-sm shrink-0" onClick={() => onChange(rows.filter((_, k) => k !== i).join("\n"))}>Remove</button>
+          </div>
+        ))}
+        {rows.length < 5 && <button type="button" className="btn-ghost btn-sm" onClick={() => onChange(value === "" ? " " : value + "\n")}>+ Add phone number</button>}
+      </div>
+    </div>
+  );
+}
 function fyOf(d: Date) { const y = d.getFullYear(), m = d.getMonth() + 1, s = m >= 4 ? y : y - 1; return `${String(s).slice(2)}-${String(s + 1).slice(2)}`; }
 
 export function SettingsForm({ initial }: { initial: Record<string, string> }) {
@@ -46,6 +66,12 @@ export function SettingsForm({ initial }: { initial: Record<string, string> }) {
             {h && <p className="mt-1 text-[11px] text-muted">{h}</p>}
           </div>
         ))}
+        <PhonesInput value={v.extraPhones ?? ""} onChange={(x) => set("extraPhones", x)} />
+        <div>
+          <label className="label">WhatsApp number</label>
+          <input className="input" type="tel" value={v.whatsapp ?? ""} placeholder="leave blank if none" onChange={(e) => set("whatsapp", e.target.value)} />
+          <p className="mt-1 text-[11px] text-muted">Can be different from the phone numbers. Printed on bills and shown on the online menu.</p>
+        </div>
       </div>
 
       <h3 className="mb-2 mt-6 text-sm font-bold">Bill design</h3>
@@ -237,5 +263,33 @@ export function PaymentSettings({ initial, hasSecret, hasWebhook, webhookUrl }: 
       {msg && <p className={`mt-3 rounded-lg px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{msg.t}</p>}
       <button className="btn-primary mt-4" disabled={pending}>{pending ? "Saving…" : "Save payment settings"}</button>
     </form>
+  );
+}
+
+/** Owner: switch the extra features the platform gave this restaurant on / off */
+export function OwnFeatures({ allowed, off: initialOff }: { allowed: string[]; off: string[] }) {
+  const [off, setOff] = useState(initialOff);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const keys = allowed.filter((k): k is FeatureKey => k in FEATURES);
+  if (!keys.length) return <p className="text-sm text-muted">No extra features yet. Ask the platform admin for Pre-orders, KOT (kitchen screen) or Online ordering.</p>;
+  return (
+    <div className="space-y-2">
+      {keys.map((k) => {
+        const on = !off.includes(k);
+        return (
+          <label key={k} className="flex items-start gap-3 rounded-xl border border-line p-3">
+            <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on} disabled={pending} aria-label={FEATURES[k].label}
+              onChange={(e) => { const want = e.target.checked; setOff((o) => (want ? o.filter((x) => x !== k) : [...o, k])); start(async () => {
+                const r = await setOwnFeatureAction(k, want); if (!r.ok) { setOff(initialOff); setMsg({ ok: false, t: r.error }); } else { setMsg({ ok: true, t: `${FEATURES[k].label}: ${want ? "on" : "off"}.` }); router.refresh(); }
+              }); }} />
+            <span><b>{FEATURES[k].label}</b> <span className={`ml-1 rounded-full px-2 text-[11px] font-bold ${on ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-600"}`}>{on ? "ON" : "OFF"}</span>
+              <span className="block text-xs text-muted">{FEATURES[k].help}</span></span>
+          </label>
+        );
+      })}
+      {msg && <p className={`text-sm ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</p>}
+    </div>
   );
 }

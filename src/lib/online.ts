@@ -1,10 +1,12 @@
 import "server-only";
+import { activeFeatures } from "./features";
 import crypto from "node:crypto";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { lookupValues } from "./options";
 import { calcTotals } from "./orders";
-import { round2 } from "./format";
+import { restaurantPhones, round2 } from "./format";
+import { smsReady } from "./sms";
 
 export type StoreDish = { id: number; name: string; price: number; category: string; vegType: string; imageId: number | null };
 export type OnlineLine = { menuItemId: number; name: string; qty: number; rate: number };
@@ -13,7 +15,7 @@ export type OnlineLine = { menuItemId: number; name: string; qty: number; rate: 
 export async function loadStorefront(codeRaw: string) {
   const code = codeRaw.trim().toLowerCase();
   const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.code, code) });
-  if (!t || !t.active || !(t.features ?? []).includes("onlineOrders")) return null;
+  if (!t || !t.active || !activeFeatures(t).includes("onlineOrders")) return null;
   const [s, items, slots] = await Promise.all([
     db.query.settings.findFirst({ where: eq(schema.settings.tenantId, t.id) }),
     db.query.menuItems.findMany({ where: and(eq(schema.menuItems.tenantId, t.id), eq(schema.menuItems.active, true), eq(schema.menuItems.available, true)), with: { category: true } }),
@@ -22,19 +24,23 @@ export async function loadStorefront(codeRaw: string) {
   if (!s) return null;
   items.sort((a, b) => a.category.sortOrder - b.category.sortOrder || a.category.name.localeCompare(b.category.name) || a.name.localeCompare(b.name));
   const dishes: StoreDish[] = items.map((i) => ({ id: i.id, name: i.name, price: Number(i.price), category: i.category.name, vegType: i.vegType, imageId: i.imageId }));
-  const preorderOk = s.onlinePreorder && (t.features ?? []).includes("preorders");
+  const preorderOk = s.onlinePreorder && activeFeatures(t).includes("preorders");
+  const payUpi = s.onlinePayUpi && !!(s.upiId || s.qrImageId); // UPI needs a UPI ID or QR in Settings
+  const payCash = s.onlinePayCash;
   return {
     tenant: { id: t.id, code: t.code },
     s,
     dishes,
     config: {
-      name: s.name, tagline: s.tagline, note: s.onlineNote, phone: s.phone, address: s.address,
-      open: s.onlineOpen, closedMsg: s.onlineClosedMsg,
+      name: s.name, tagline: s.tagline, note: s.onlineNote, phone: restaurantPhones(s).join(" / "), whatsapp: s.whatsapp, address: s.address,
+      // no payment method the customer can use = can't take orders
+      open: s.onlineOpen && (payUpi || payCash),
+      closedMsg: payUpi || payCash ? s.onlineClosedMsg : "Online ordering isn't available yet. Please call us to order.",
       delivery: s.onlineDelivery, takeaway: s.onlineTakeaway, preorder: preorderOk,
       minOrder: Number(s.onlineMinOrder), deliveryCharge: Number(s.defaultDeliveryCharge), gstRate: Number(s.gstRate),
-      upi: !!(s.upiId || s.qrImageId),
-      waConfirm: s.onlineWaConfirm && !!waNumber(s.phone),
-      newUpiOnly: s.onlineNewUpiOnly && !!(s.upiId || s.qrImageId), newMax: Number(s.onlineNewMax),
+      payUpi, payCash,
+      otp: s.onlineOtp && smsReady(),
+      newMax: Number(s.onlineNewMax),
       mealSlots: slots.length ? slots : ["Breakfast", "Lunch", "Evening Snacks", "Dinner"],
       primary: s.primaryColor, accent: s.accentColor, hasLogo: !!s.logoImageId,
     },
@@ -83,20 +89,6 @@ export function deviceHash(tenantId: number, dev: string | undefined) {
   return crypto.createHash("sha256").update(`${tenantId}:${dev}`).digest("hex").slice(0, 40);
 }
 export const newDeviceId = () => crypto.randomBytes(18).toString("base64url");
-
-/** Restaurant phone as a wa.me number (India: 91 + 10 digits) or "" */
-export function waNumber(phone: string | null | undefined) {
-  const d = String(phone ?? "").replace(/\D/g, "");
-  if (d.length === 10) return `91${d}`;
-  if (d.length === 12 && d.startsWith("91")) return d;
-  if (d.length === 11 && d.startsWith("0")) return `91${d.slice(1)}`;
-  return d.length >= 11 && d.length <= 15 ? d : "";
-}
-export function waConfirmLink(restaurantPhone: string | null | undefined, o: { id: number; verifyCode: string; name: string }) {
-  const n = waNumber(restaurantPhone);
-  if (!n || !o.verifyCode) return "";
-  return `https://wa.me/${n}?text=${encodeURIComponent(`Hi, this is ${o.name}. Confirming my online order #${o.id}. Code: ${o.verifyCode}`)}`;
-}
 
 /** Bills (not cancelled) per customer - to show "new number" vs "regular" */
 export async function billCounts(tenantId: number, customerIds: number[]) {

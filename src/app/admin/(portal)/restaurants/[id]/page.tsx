@@ -31,7 +31,7 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
         <Stat label="Last order" value={stats.last ? fmtDate(stats.last) : "—"} />
       </div>
       <Card title="Account"><TenantEditor t={t} /></Card>
-      <Card title="Features (switch on when the restaurant asks)"><TenantFeatures id={id} features={t.features ?? []} /></Card>
+      <Card title="Features (switch on when the restaurant asks)"><TenantFeatures id={id} features={t.features ?? []} off={t.featuresOff ?? []} /></Card>
       <Card title="Logins" actions={<AddOwner tenantId={id} />}>
         <ul className="divide-y divide-line">
           {users.map((u) => (

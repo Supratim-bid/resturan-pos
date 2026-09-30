@@ -47,3 +47,14 @@ export function fmtTime(t: string): string {
   const h = Number(m[1]);
   return `${h % 12 || 12}:${m[2]} ${h < 12 ? "AM" : "PM"}`;
 }
+
+/** Restaurant phone numbers: main + extra ones (one per line / comma) */
+export function restaurantPhones(s: { phone?: string | null; extraPhones?: string | null }): string[] {
+  const all = [s.phone ?? "", ...(s.extraPhones ?? "").split(/[\n,;]+/)].map((x) => x.trim()).filter(Boolean);
+  return [...new Set(all)];
+}
+/** "Ph: 98111 22233 / 97000 11122 · WhatsApp: 98111 22233" style line parts */
+export function phoneLine(s: { phone?: string | null; extraPhones?: string | null; whatsapp?: string | null }) {
+  const p = restaurantPhones(s);
+  return [p.length ? `Ph: ${p.join(" / ")}` : "", s.whatsapp?.trim() ? `WhatsApp: ${s.whatsapp.trim()}` : ""].filter(Boolean);
+}

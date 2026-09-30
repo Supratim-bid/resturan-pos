@@ -25,7 +25,9 @@ export async function saveSettingsAction(v: Record<string, string>): Promise<R> 
     const primary = (v.primaryColor || "#9a1c1f").trim(), accent = (v.accentColor || "#c8962e").trim();
     if (!HEX.test(primary) || !HEX.test(accent)) throw new Error("Colours must look like #9a1c1f");
     await db.update(schema.settings).set({
-      name: v.name?.trim() || "My Restaurant", tagline: v.tagline ?? "", address: v.address ?? "", phone: v.phone ?? "", email: v.email ?? "",
+      name: v.name?.trim() || "My Restaurant", tagline: v.tagline ?? "", address: v.address ?? "", phone: (v.phone ?? "").trim().slice(0, 30), email: v.email ?? "",
+      extraPhones: (v.extraPhones ?? "").split(/[\n,;]+/).map((x) => x.trim().slice(0, 30)).filter(Boolean).slice(0, 5).join("\n"),
+      whatsapp: (v.whatsapp ?? "").trim().slice(0, 30),
       gstin: (v.gstin ?? "").toUpperCase(), fssai: v.fssai ?? "", upiId: v.upiId ?? "", billFooter: v.billFooter ?? "",
       gstRate: n("gstRate"), priceMultiplier: n("priceMultiplier", 3) || 3, platformCommission: n("platformCommission"),
       defaultDeliveryCharge: n("defaultDeliveryCharge"), defaultPackingCharge: n("defaultPackingCharge"),
@@ -107,6 +109,20 @@ export async function updateUserAction(id: number, v: { name: string; phone?: st
     await db.update(schema.users).set(set).where(and(eq(schema.users.id, id), eq(schema.users.tenantId, me.tenantId)));
     revalidatePath("/settings");
     if (permsChanged) revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Owner switches an extra feature (given by the super admin) on or off for their restaurant */
+export async function setOwnFeatureAction(feature: string, on: boolean): Promise<R> {
+  try {
+    const u = await requireAction("settings");
+    const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, u.tenantId) });
+    if (!t || !(t.features ?? []).includes(feature)) throw new Error("This feature is not available for your restaurant. Ask the platform admin.");
+    const off = new Set(t.featuresOff ?? []);
+    if (on) off.delete(feature); else off.add(feature);
+    await db.update(schema.tenants).set({ featuresOff: [...off] }).where(eq(schema.tenants.id, u.tenantId));
+    revalidatePath("/", "layout");
     return { ok: true };
   } catch (e) { return fail(e); }
 }

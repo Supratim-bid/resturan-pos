@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { loadStorefront } from "@/lib/online";
+import { PHONE_COOKIE, verifyPhone } from "@/lib/session";
 import { isRestaurantPath } from "@/lib/reserved";
 import { themeCss } from "@/lib/theme";
 import { todayIST } from "@/lib/format";
@@ -20,10 +22,11 @@ export default async function OrderPage({ params }: { params: Promise<{ code: st
   if (!isRestaurantPath(code)) notFound();
   const store = await loadStorefront(code);
   if (!store) notFound();
+  const verifiedPhone = store.config.otp ? (await verifyPhone((await cookies()).get(PHONE_COOKIE)?.value, store.tenant.id)) ?? "" : "";
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: themeCss(store.config.primary, store.config.accent) }} />
-      <Storefront code={store.tenant.code} config={store.config} dishes={store.dishes} today={todayIST()} />
+      <Storefront code={store.tenant.code} config={store.config} dishes={store.dishes} today={todayIST()} verifiedPhone={verifiedPhone} />
     </>
   );
 }

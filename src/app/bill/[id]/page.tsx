@@ -2,30 +2,35 @@ import { notFound } from "next/navigation";
 import { requirePage } from "@/lib/auth";
 import { loadBill, qrDataUrl } from "@/lib/bill";
 import { themeCss } from "@/lib/theme";
-import { fmtDate, fmtDateTime, fmtTime, inr2 } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtTime, inr2, phoneLine } from "@/lib/format";
 import { PrintBar } from "./print-bar";
+import { KotSlip, kotWidth } from "@/components/kot-slip";
 
-type Size = "a4" | "80" | "58";
+type Size = "a4" | "half" | "80" | "58";
 
-export default async function Bill({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ size?: string }> }) {
+export default async function Bill({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ size?: string; kot?: string }> }) {
   const u = await requirePage("orders");
   const { id } = await params;
   const b = await loadBill(u.tenantId, Number(id));
   if (!b) notFound();
   const { o, s, paid, due, pay, billPack } = b;
-  const q = (await searchParams).size;
-  const size: Size = q === "80" || q === "58" || q === "a4" ? q : "a4";
-  const thermal = size !== "a4";
+  const sp = await searchParams;
+  const q = sp.size;
+  const withKot = !!o.kotNo && sp.kot === "1" && u.features.includes("kot");
+  const size: Size = q === "80" || q === "58" || q === "a4" || q === "half" ? q : "a4";
+  const thermal = size !== "a4"; // compact receipt layout (thermal rolls, and half an A4 sheet)
+  const half = size === "half";
   const upi = !pay ? null : pay.kind === "image" ? `/img/${pay.imageId}` : await qrDataUrl(pay.text);
   const gst = Number(o.gstRate);
-  const width = size === "58" ? "w-[58mm] p-1.5 text-[10.5px]" : size === "80" ? "w-[80mm] p-2 text-[11.5px]" : "max-w-[640px] p-5 text-[13px]";
+  // half A4: a 105mm-wide column on the left of the sheet; turn the sheet round and print the next bill on the other half
+  const width = half ? "w-[105mm] min-h-[140mm] px-[7mm] py-[6mm] text-[12px] border-r border-dashed border-stone-400 print:!ml-0" : size === "58" ? "w-[58mm] p-1.5 text-[10.5px]" : size === "80" ? "w-[80mm] p-2 text-[11.5px]" : "max-w-[640px] p-5 text-[13px]";
   const row = (l: string, v: string, bold = false) => (
     <div className={`flex justify-between gap-2 ${bold ? "text-[1.15em] font-bold" : ""}`}><span>{l}</span><span className="tabular-nums">{v}</span></div>
   );
   return (
     <div className="min-h-dvh bg-stone-100 py-4 print:bg-white print:py-0">
-      <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor) + (thermal ? `@page{size:${size}mm auto;margin:0}` : "") }} />
-      <PrintBar id={o.id} size={size} billNo={o.billNo} defaultWidth={s.receiptWidth === "80" ? "80" : "58"}
+      <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor) + (half ? "@page{size:A4 portrait;margin:0}" : thermal ? `@page{size:${size}mm auto;margin:0}` : "") }} />
+      <PrintBar id={o.id} size={size} explicit={!!q} hasKot={!!o.kotNo && u.features.includes("kot")} withKot={withKot} kotExplicit={sp.kot !== undefined} billNo={o.billNo} defaultWidth={s.receiptWidth === "80" ? "80" : "58"}
         phone={o.customer?.phone ?? ""} message={`*${s.name}* - Bill ${o.billNo}\nTotal: ₹${Number(o.total)}${due > 0 ? `\nDue: ₹${due}` : "\nPaid - thank you!"}\nYour bill is attached (PDF).`} />
       <div className={`mx-auto bg-white text-black shadow print:shadow-none ${width}`}>
         <div className="text-center">
@@ -34,7 +39,8 @@ export default async function Bill({ params, searchParams }: { params: Promise<{
           {s.tagline && <div className="italic">{s.tagline}</div>}
           {s.billHeaderNote && <div className={thermal ? "font-semibold" : "mx-auto mt-0.5 inline-block rounded-full bg-gold-light px-3 py-0.5 text-[0.9em] font-semibold text-brand print:bg-white"}>{s.billHeaderNote}</div>}
           {s.address && <div>{s.address}</div>}
-          {s.phone && <div>Ph: {s.phone}{s.email && !thermal ? ` · ${s.email}` : ""}</div>}
+          {phoneLine(s).map((l) => <div key={l}>{l}</div>)}
+          {s.email && !thermal && <div>{s.email}</div>}
           {s.gstin && <div>GSTIN: {s.gstin}</div>}
           {s.fssai && <div>FSSAI: {s.fssai}</div>}
           <div className={`my-2 py-0.5 font-bold tracking-widest ${thermal ? "border-2 border-black" : "border-y-2 border-gold bg-brand text-white print:border print:border-black print:bg-white print:text-black"}`}>{gst > 0 ? "TAX INVOICE" : "BILL"}</div>
@@ -116,6 +122,11 @@ export default async function Bill({ params, searchParams }: { params: Promise<{
         {s.billSocial && <p className="mt-1 text-center text-[0.9em]">{s.billSocial}</p>}
         {s.billTerms && <p className={`mt-2 whitespace-pre-line text-center text-[0.8em] ${thermal ? "" : "text-stone-500"}`}>{s.billTerms}</p>}
       </div>
+      {withKot && (
+        <KotSlip restaurant={s.name} kotNo={o.kotNo!} billNo={o.billNo} date={o.date} at={o.kotAt} orderType={o.orderType} tableNo={o.tableNo}
+          customer={o.customer?.name} notes={o.notes} items={o.items} updated={o.kotUpdated} cancelled={o.status === "CANCELLED"}
+          isPreorder={o.isPreorder} mealSlot={o.mealSlot} slotTime={o.slotTime} widthClass={kotWidth(size === "a4" ? "half" : size)} pageBreak />
+      )}
     </div>
   );
 }

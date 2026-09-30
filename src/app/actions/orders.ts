@@ -32,8 +32,9 @@ export async function saveOrderAction(input: OrderInput): Promise<R<number>> {
       throw new Error("This login can only create orders for today (or pre-orders for a later date).");
     }
     if (input.isPreorder && !input.id && input.date < todayIST()) throw new Error("A pre-order must be for today or a later date.");
+    input.kot = !!input.kot && u.features.includes("kot");
     const id = await saveOrder(u.tenantId, input, u.id);
-    revalidatePath("/orders");
+    revalidatePath("/orders"); revalidatePath("/kot");
     return { ok: true, data: id };
   } catch (e) { return fail(e); }
 }

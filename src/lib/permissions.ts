@@ -8,6 +8,7 @@ export const MODULES = {
   orders:     { label: "Orders & Bills",     href: "/orders" },
   preorders:  { label: "Pre-orders",         href: "/preorders" },
   onlineOrders: { label: "Online Orders",    href: "/online-orders" },
+  kot:        { label: "Kitchen (KOT)",      href: "/kot" },
   customers:  { label: "Customers & Dues",   href: "/customers" },
   dailyMenu:  { label: "Today's Menu",       href: "/daily-menu" },
   menu:       { label: "Menu",               href: "/menu" },
@@ -20,6 +21,7 @@ export const MODULES = {
   vendors:    { label: "Vendors & Dues",     href: "/vendors" },
   staff:      { label: "Staff & Attendance", href: "/staff" },
   cash:       { label: "Cash Closing",       href: "/cash" },
+  money:      { label: "Cash & Bank",        href: "/money" },
   settlements:{ label: "Swiggy/Zomato Payouts", href: "/settlements" },
   reports:    { label: "Reports & P&L",      href: "/reports" },
   reminders:  { label: "Reminders",          href: "/reminders" },
@@ -41,9 +43,9 @@ export const ALL_PERMS = [...Object.keys(MODULES), ...Object.keys(POWERS)] as Pe
 /** Starting access for each role (owner can change per person) */
 export const ROLE_DEFAULTS: Record<Role, PermKey[]> = {
   OWNER: ALL_PERMS,
-  MANAGER: ALL_PERMS.filter((k) => k !== "reports" && k !== "settings" && k !== "approveCancel"),
+  MANAGER: ALL_PERMS.filter((k) => k !== "reports" && k !== "settings" && k !== "approveCancel" && k !== "money"),
   CASHIER: ["newOrder", "orders", "preorders", "onlineOrders", "customers", "dailyMenu", "expenses", "cash"],
-  KITCHEN: ["preorders", "dailyMenu", "recipes", "stock", "wastage"],
+  KITCHEN: ["kot", "preorders", "dailyMenu", "recipes", "stock", "wastage"],
 };
 
 export type Perms = { role: Role; perms: PermKey[]; features?: string[] };

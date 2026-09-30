@@ -4,7 +4,7 @@ import path from "node:path";
 import { getUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { loadBill, logoDataUrl, qrDataUrl } from "@/lib/bill";
-import { fmtDate, fmtDateTime, fmtTime } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtTime, phoneLine } from "@/lib/format";
 
 export const runtime = "nodejs";
 
@@ -51,7 +51,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (paid > 0) after.push(["Paid", money(paid)]);
   if (due > 0) after.push(["BALANCE DUE", money(due), true]);
   const addr = o.customer ? [o.customer.flat, o.customer.area].filter(Boolean).join(", ") : "";
-  const headLines = [s.tagline, s.billHeaderNote, s.address, s.phone && `Ph: ${s.phone}`, s.gstin && `GSTIN: ${s.gstin}`, s.fssai && `FSSAI: ${s.fssai}`].filter(Boolean) as string[];
+  const headLines = [s.tagline, s.billHeaderNote, s.address, ...phoneLine(s), s.gstin && `GSTIN: ${s.gstin}`, s.fssai && `FSSAI: ${s.fssai}`].filter(Boolean) as string[];
 
   // height estimate (thermal paper is continuous, a little extra white space is fine)
   let H = pad * 2 + 10;

@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { uploadImageAction } from "@/app/actions/images";
 
 /** Resize in the browser (keeps uploads small on mobile data), then upload. */
-async function resize(file: File, max: number, format: "image/webp" | "image/jpeg" | "image/png" = "image/webp"): Promise<{ blob: Blob; w: number; h: number }> {
+export async function resize(file: File, max: number, format: "image/webp" | "image/jpeg" | "image/png" = "image/webp"): Promise<{ blob: Blob; w: number; h: number }> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });

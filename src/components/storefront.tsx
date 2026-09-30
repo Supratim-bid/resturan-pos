@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { placeOnlineOrderAction, type PlaceOrderInput } from "@/app/actions/online";
+import { placeOnlineOrderAction, sendPhoneOtpAction, verifyPhoneOtpAction, type PlaceOrderInput } from "@/app/actions/online";
 import type { StoreConfig, StoreDish } from "@/lib/online";
 
 const inr = (n: number, d = 0) => "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -11,7 +11,7 @@ const SLOT_TIME: Record<string, string> = { breakfast: "08:30", lunch: "13:00", 
 function addDay(d: string, n: number) { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); }
 
 /** The customer-facing menu + cart + checkout (no login) */
-export function Storefront({ code, config, dishes, today }: { code: string; config: StoreConfig; dishes: StoreDish[]; today: string }) {
+export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: { code: string; config: StoreConfig; dishes: StoreDish[]; today: string; verifiedPhone?: string }) {
   const [cart, setCart] = useState<Record<number, number>>({});
   const [cat, setCat] = useState("All");
   const [q, setQ] = useState("");
@@ -22,9 +22,25 @@ export function Storefront({ code, config, dishes, today }: { code: string; conf
   const [date, setDate] = useState(addDay(today, 1));
   const [slot, setSlot] = useState("");
   const [time, setTime] = useState("");
-  const [pay, setPay] = useState<"COD" | "UPI">("COD");
   const [err, setErr] = useState("");
   const [pending, start] = useTransition();
+  const [pay, setPay] = useState<"UPI" | "COD">(config.payUpi ? "UPI" : "COD");
+  // SMS OTP (only when the restaurant turned it on and SMS is connected)
+  const [verified, setVerified] = useState(verifiedPhone);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [otpMsg, setOtpMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [otpBusy, otpStart] = useTransition();
+  const phone10 = f.phone.replace(/\D/g, "").slice(-10);
+  const phoneOk = !config.otp || (!!verified && verified === phone10);
+  const sendOtp = () => otpStart(async () => {
+    setOtpMsg(null); const r = await sendPhoneOtpAction(code, f.phone);
+    if (r.ok) { setOtpSent(true); setOtpMsg({ ok: true, t: "Code sent by SMS. Enter it below." }); } else setOtpMsg({ ok: false, t: r.error });
+  });
+  const checkOtp = () => otpStart(async () => {
+    setOtpMsg(null); const r = await verifyPhoneOtpAction(code, f.phone, otp);
+    if (r.ok) { setVerified(phone10); setOtpSent(false); setOtp(""); } else setOtpMsg({ ok: false, t: r.error });
+  });
 
   // returning customers: remember their details on this phone only
   useEffect(() => {
@@ -117,7 +133,20 @@ export function Storefront({ code, config, dishes, today }: { code: string; conf
           <section className="card space-y-3">
             <h2 className="font-bold">Your details</h2>
             <div><label className="label" htmlFor="cname">Name</label><input id="cname" className="input" autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-            <div><label className="label" htmlFor="cphone">Mobile number</label><input id="cphone" className="input" type="tel" inputMode="numeric" autoComplete="tel" placeholder="10-digit mobile" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></div>
+            <div><label className="label" htmlFor="cphone">Mobile number</label><input id="cphone" className="input" type="tel" inputMode="numeric" autoComplete="tel" placeholder="10-digit mobile" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+              {config.otp && (phoneOk ? <p className="mt-1 text-xs font-semibold text-emerald-700">✓ Mobile number verified</p> : (
+                <div className="mt-2 space-y-2">
+                  {otpSent ? (
+                    <div className="flex gap-2">
+                      <input id="cotp" className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="6-digit code" value={otp} onChange={(e) => setOtp(e.target.value)} />
+                      <button type="button" className="btn-primary shrink-0" disabled={otpBusy} onClick={checkOtp}>{otpBusy ? "…" : "Verify"}</button>
+                    </div>
+                  ) : null}
+                  <button type="button" className="btn-ghost btn-sm" disabled={otpBusy || phone10.length !== 10} onClick={sendOtp}>{otpSent ? "Send code again" : "Send OTP to verify"}</button>
+                  {otpMsg && <p className={`text-xs ${otpMsg.ok ? "text-emerald-700" : "text-red-700"}`}>{otpMsg.t}</p>}
+                </div>
+              ))}
+            </div>
             {kind === "DELIVERY" && <>
               <div><label className="label" htmlFor="cflat">Flat / house no.</label><input id="cflat" className="input" autoComplete="address-line1" value={f.flat} onChange={(e) => setF({ ...f, flat: e.target.value })} /></div>
               <div><label className="label" htmlFor="carea">Society / street / area</label><input id="carea" className="input" autoComplete="address-line2" value={f.area} onChange={(e) => setF({ ...f, area: e.target.value })} /></div>
@@ -128,13 +157,12 @@ export function Storefront({ code, config, dishes, today }: { code: string; conf
 
           <section className="card space-y-2">
             <h2 className="font-bold">Payment</h2>
-            <label className="flex items-start gap-2 text-sm"><input type="radio" className="mt-1 accent-[var(--color-brand)]" checked={pay === "COD"} onChange={() => setPay("COD")} />
-              <span>Pay {kind === "DELIVERY" ? "on delivery" : "at pickup"}<span className="block text-xs text-muted">Cash or UPI when you get your food</span></span></label>
-            {config.upi && <label className="flex items-start gap-2 text-sm"><input type="radio" className="mt-1 accent-[var(--color-brand)]" checked={pay === "UPI"} onChange={() => setPay("UPI")} />
-              <span>Pay now by UPI<span className="block text-xs text-muted">You&apos;ll see the QR after placing the order</span></span></label>}
-            {config.newUpiOnly && <p className="text-xs text-amber-800">First order with us? Please choose &quot;Pay now by UPI&quot;.</p>}
+            {config.payUpi && <label className="flex items-start gap-2 text-sm"><input type="radio" name="pay" className="mt-1 accent-[var(--color-brand)]" checked={pay === "UPI"} onChange={() => setPay("UPI")} />
+              <span><b>Pay now by UPI</b><span className="block text-xs text-muted">After placing the order you&apos;ll see the UPI QR / button. You can attach a payment screenshot (optional). The restaurant confirms after checking the payment.</span></span></label>}
+            {config.payCash && <label className="flex items-start gap-2 text-sm"><input type="radio" name="pay" className="mt-1 accent-[var(--color-brand)]" checked={pay === "COD"} onChange={() => setPay("COD")} />
+              <span><b>Cash {kind === "DELIVERY" ? "on delivery" : "at pickup"}</b><span className="block text-xs text-muted">Pay when you get your food</span></span></label>}
             {config.newMax > 0 && <p className="text-xs text-muted">First orders from a new number can be up to ₹{config.newMax}.</p>}
-            {config.waConfirm && <p className="text-xs text-muted">After ordering, you&apos;ll confirm it on WhatsApp with one tap.</p>}
+
           </section>
 
           <section className="card space-y-1 text-sm">
@@ -148,8 +176,8 @@ export function Storefront({ code, config, dishes, today }: { code: string; conf
           {err && <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
         </main>
         <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white/95 px-4 pb-[calc(12px+env(safe-area-inset-bottom))] pt-3 backdrop-blur">
-          <button className="btn-primary mx-auto block w-full max-w-lg !py-3.5 text-base" disabled={pending || !count || belowMin} onClick={place}>
-            {pending ? "Placing order…" : `Place order · ${inr(total)}`}
+          <button className="btn-primary mx-auto block w-full max-w-lg !py-3.5 text-base" disabled={pending || !count || belowMin || !phoneOk} onClick={place}>
+            {pending ? "Placing order…" : !phoneOk ? "Verify your mobile number to order" : `Place order · ${inr(total)}`}
           </button>
         </div>
       </div>
@@ -193,7 +221,7 @@ export function Storefront({ code, config, dishes, today }: { code: string; conf
             );
           })}
         </div>
-        {(config.phone || config.address) && <p className="mt-6 text-center text-xs text-muted">{config.address}{config.phone ? ` · ${config.phone}` : ""}</p>}
+        {(config.phone || config.address || config.whatsapp) && <p className="mt-6 text-center text-xs text-muted">{[config.address, config.phone && `Ph: ${config.phone}`, config.whatsapp && `WhatsApp: ${config.whatsapp}`].filter(Boolean).join(" · ")}</p>}
       </main>
       {count > 0 && config.open && (
         <div className="fixed inset-x-0 bottom-0 px-4 pb-[calc(12px+env(safe-area-inset-bottom))]">

@@ -21,6 +21,7 @@ export const tenants = pgTable("tenants", {
   contactPhone: text("contact_phone").notNull().default(""),
   plan: text("plan").notNull().default("Standard"),
   features: text("features").array().notNull().default([]), // extra features switched on by the super admin, e.g. "preorders"
+  featuresOff: text("features_off").array().notNull().default([]), // features the owner switched off for now (still allowed by super admin)
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -33,6 +34,18 @@ export const superAdmins = pgTable("super_admins", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// SMS codes customers get to verify their mobile before ordering online (used only when an SMS provider is set up)
+export const phoneOtps = pgTable("phone_otps", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  phone: text("phone").notNull(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  used: boolean("used").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("phone_otps_phone").on(t.tenantId, t.phone)]);
 
 export const adminOtps = pgTable("admin_otps", {
   id: serial("id").primaryKey(),
@@ -73,6 +86,8 @@ export const settings = pgTable("settings", {
   address: text("address").notNull().default(""),
   phone: text("phone").notNull().default(""),
   email: text("email").notNull().default(""),
+  extraPhones: text("extra_phones").notNull().default(""), // more phone numbers, one per line
+  whatsapp: text("whatsapp").notNull().default(""),        // WhatsApp number (can differ from the phone)
   gstin: text("gstin").notNull().default(""),
   fssai: text("fssai").notNull().default(""),
   gstRate: pct("gst_rate").notNull().default(5),
@@ -105,10 +120,11 @@ export const settings = pgTable("settings", {
   onlineMinOrder: money("online_min_order").notNull().default(0),
   onlineDeliveryType: text("online_delivery_type").notNull().default("Delivery"), // order type used when accepting
   onlineTakeawayType: text("online_takeaway_type").notNull().default("Takeaway"),
-  // stopping fake orders (free - no SMS)
-  onlineWaConfirm: boolean("online_wa_confirm").notNull().default(true),   // ask customers to confirm on WhatsApp
-  onlineNewUpiOnly: boolean("online_new_upi_only").notNull().default(false), // first order from a new number must be paid by UPI
+  // stopping fake orders (online orders are always paid by UPI first)
   onlineNewMax: money("online_new_max").notNull().default(0),                // max first order from a new number (0 = no limit)
+  onlinePayUpi: boolean("online_pay_upi").notNull().default(true),   // customer can pay now by UPI
+  onlinePayCash: boolean("online_pay_cash").notNull().default(false), // customer can pay cash on delivery / at pickup
+  onlineOtp: boolean("online_otp").notNull().default(false),         // verify mobile by SMS OTP (needs an SMS provider)
   // bill design
   billShowLogo: boolean("bill_show_logo").notNull().default(true),
   billHeaderNote: text("bill_header_note").notNull().default(""),   // e.g. "100% homemade · No MSG"
@@ -315,6 +331,11 @@ export const orders = pgTable("orders", {
   slotTime: text("slot_time").notNull().default(""),      // "13:00"
   bookedOn: day("booked_on"),
   fulfilStatus: text("fulfil_status").notNull().default(""), // "" | PENDING | READY | DELIVERED
+  // KOT (kitchen order ticket) - feature "kot"
+  kotNo: integer("kot_no"),                                   // running KOT number per day (null = no KOT)
+  kotStatus: text("kot_status").notNull().default(""),         // "" | NEW | PREPARING | READY | SERVED
+  kotAt: timestamp("kot_at"),                                  // when the KOT was (re)sent to the kitchen
+  kotUpdated: boolean("kot_updated").notNull().default(false), // items changed after the first KOT
   // online payment link (Razorpay)
   payLinkId: text("pay_link_id").notNull().default(""),
   payLinkShort: text("pay_link_short").notNull().default(""),
@@ -368,15 +389,14 @@ export const onlineOrders = pgTable("online_orders", {
   items: text("items").notNull(),                           // JSON [{menuItemId, name, qty, rate}]
   estTotal: money("est_total").notNull(),
   payMethod: text("pay_method").notNull(),                  // COD | UPI
-  upiRef: text("upi_ref").notNull().default(""),            // UTR / transaction id the customer typed
+  upiRef: text("upi_ref").notNull().default(""),            // (old) UTR typed by the customer - no longer asked
   notes: text("notes").notNull().default(""),
   rejectReason: text("reject_reason").notNull().default(""),
   orderId: integer("order_id").references(() => orders.id), // the bill created on accept
   decidedById: integer("decided_by_id"),
   decidedAt: timestamp("decided_at"),
   ip: text("ip").notNull().default(""),
-  verifyCode: text("verify_code").notNull().default(""),      // 4 digits the customer sends on WhatsApp
-  waConfirmed: boolean("wa_confirmed").notNull().default(false), // staff saw the WhatsApp message from this number
+  payProofImageId: integer("pay_proof_image_id"),             // payment screenshot the customer attached (optional, staff-only)
   device: text("device").notNull().default(""),               // hash of the customer's browser id (for "My orders")
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("online_orders_tenant_status").on(t.tenantId, t.status, t.createdAt)]);
@@ -484,6 +504,22 @@ export const attendance = pgTable("attendance", {
   date: day("date").notNull(),
   status: text("status").notNull(), // P, A, H, L
 }, (t) => [uniqueIndex("attendance_staff_date").on(t.staffId, t.date)]);
+
+// Manual money entries for the Cash & Bank ledger: opening balances, owner adding / taking money,
+// cash deposited to the bank, bank charges... (bills, expenses, vendor payments and payouts are added automatically)
+export const moneyEntries = pgTable("money_entries", {
+  id: serial("id").primaryKey(),
+  tenantId: tid(),
+  date: day("date").notNull(),
+  kind: text("kind").notNull(),              // OPENING | IN | OUT | TRANSFER
+  account: text("account").notNull(),        // CASH | BANK (for TRANSFER: money leaves this one)
+  toAccount: text("to_account").notNull().default(""), // TRANSFER only
+  amount: money("amount").notNull(),
+  category: text("category").notNull().default(""),
+  notes: text("notes").notNull().default(""),
+  createdById: integer("created_by_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("money_entries_tenant_date").on(t.tenantId, t.date)]);
 
 export const cashClosings = pgTable("cash_closings", {
   id: serial("id").primaryKey(),

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { acceptOnlineOrderAction, rejectOnlineOrderAction, saveOnlineSettingsAction, setBlockedAction, setOnlineOpenAction, setWaConfirmedAction } from "@/app/actions/online";
+import { acceptOnlineOrderAction, rejectOnlineOrderAction, saveOnlineSettingsAction, setBlockedAction, setOnlineOpenAction } from "@/app/actions/online";
 
 /** Checks for new orders every 15 s and beeps when one arrives (after "Turn on sound" is tapped once) */
 export function LiveOrders({ newCount }: { newCount: number }) {
@@ -45,7 +45,7 @@ export function OpenSwitch({ open }: { open: boolean }) {
   );
 }
 
-export function OnlineOrderActions({ id, payMethod, upiRef, canBlock = false }: { id: number; payMethod: string; upiRef: string; canBlock?: boolean }) {
+export function OnlineOrderActions({ id, payMethod, canBlock = false }: { id: number; payMethod: string; canBlock?: boolean }) {
   const [mode, setMode] = useState<"" | "reject">("");
   const [block, setBlock] = useState(false);
   const [paid, setPaid] = useState(false);
@@ -61,7 +61,7 @@ export function OnlineOrderActions({ id, payMethod, upiRef, canBlock = false }: 
     <div className="space-y-2">
       {payMethod === "UPI" && mode === "" && (
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[var(--color-brand)]" checked={paid} onChange={(e) => setPaid(e.target.checked)} />
-          UPI payment received{upiRef ? ` (UTR ${upiRef})` : ""} - check your UPI app</label>
+          <span><b>Payment received</b> - I checked our UPI app / bank (records the payment on the bill)</span></label>
       )}
       {mode === "reject" ? (
         <div className="space-y-2">
@@ -83,23 +83,6 @@ export function OnlineOrderActions({ id, payMethod, upiRef, canBlock = false }: 
   );
 }
 
-/** WhatsApp code check: the customer sends the code from their own number, staff compare and tick */
-export function WaConfirm({ id, code, phone, confirmed }: { id: number; code: string; phone: string; confirmed: boolean }) {
-  const [pending, start] = useTransition();
-  const router = useRouter();
-  const toggle = () => start(async () => { await setWaConfirmedAction(id, !confirmed); router.refresh(); });
-  if (confirmed) return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">✓ Confirmed on WhatsApp (code {code})
-      <button type="button" className="text-xs underline" disabled={pending} onClick={toggle}>undo</button></div>
-  );
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-      <span>WhatsApp code <b className="font-mono text-base tracking-widest">{code}</b> - not confirmed yet. Look for a message from <b>{phone}</b> with this code.</span>
-      <button type="button" className="btn-ghost btn-sm" disabled={pending} onClick={toggle}>✓ Got it on WhatsApp</button>
-    </div>
-  );
-}
-
 export function BlockButton({ customerId, blocked }: { customerId: number; blocked: boolean }) {
   const [pending, start] = useTransition();
   const router = useRouter();
@@ -114,7 +97,7 @@ export function CopyLink({ url }: { url: string }) {
   return <button type="button" className="btn-ghost btn-sm" onClick={() => navigator.clipboard?.writeText(url).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); })}>{done ? "Copied ✓" : "Copy link"}</button>;
 }
 
-export function OnlineSettings({ initial, orderTypes, preorderFeature, hasPhone = true, hasUpi = true }: { initial: Record<string, string>; orderTypes: string[]; preorderFeature: boolean; hasPhone?: boolean; hasUpi?: boolean }) {
+export function OnlineSettings({ initial, orderTypes, preorderFeature, hasUpi, smsReady }: { initial: Record<string, string>; orderTypes: string[]; preorderFeature: boolean; hasUpi: boolean; smsReady: boolean }) {
   const [v, setV] = useState(initial);
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
@@ -137,10 +120,17 @@ export function OnlineSettings({ initial, orderTypes, preorderFeature, hasPhone 
         <div className="sm:col-span-2"><label className="label" htmlFor="ocl">Message when closed</label><input id="ocl" className="input" value={v.onlineClosedMsg} onChange={(e) => setV({ ...v, onlineClosedMsg: e.target.value })} /></div>
       </div>
       <div className="space-y-2 rounded-xl bg-cream p-3">
-        <div className="text-sm font-bold">Stopping fake orders (free)</div>
-        {box("onlineWaConfirm", "Ask customers to confirm on WhatsApp (they send a 4-digit code to your number)", !hasPhone)}
-        {!hasPhone && <p className="text-xs text-red-700">Add your restaurant phone number in Settings to use WhatsApp confirmation.</p>}
-        {box("onlineNewUpiOnly", "First order from a new number must be paid by UPI", !hasUpi)}
+        <div className="text-sm font-bold">How customers can pay</div>
+        {box("onlinePayUpi", "Pay now by UPI (your QR / UPI ID) - customer can attach a payment screenshot")}
+        {!hasUpi && v.onlinePayUpi === "true" && <p className="text-xs text-red-700">Add your UPI ID or payment QR in Settings, otherwise customers won&apos;t see this option.</p>}
+        {box("onlinePayCash", "Cash on delivery / at pickup")}
+        <p className="text-xs text-muted">Tick at least one. Tip: UPI only is safest against fake orders.</p>
+      </div>
+      <div className="space-y-2 rounded-xl bg-cream p-3">
+        <div className="text-sm font-bold">Stopping fake orders</div>
+        {box("onlineOtp", smsReady ? "Verify customer's mobile number with an SMS OTP before ordering" : "Verify customer's mobile number with an SMS OTP - coming soon", !smsReady)}
+        {!smsReady && <p className="text-xs text-muted">Needs an SMS service to be connected (about ₹0.15-0.20 per SMS). It will switch on here once it is set up.</p>}
+        <p className="text-xs text-muted">You can also block fake numbers from the Reject button.</p>
         <div className="sm:w-1/2"><label className="label" htmlFor="onmax">Maximum first order from a new number ₹ (0 = no limit)</label><input id="onmax" className="input" inputMode="decimal" value={v.onlineNewMax} onChange={(e) => setV({ ...v, onlineNewMax: e.target.value })} /></div>
       </div>
       <p className="text-xs text-muted">Delivery charge and GST come from Settings. Prices and dishes come from your Menu; dishes marked “not available” are hidden from customers.</p>

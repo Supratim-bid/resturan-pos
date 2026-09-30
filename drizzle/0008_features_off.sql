@@ -1,0 +1,1 @@
+ALTER TABLE "tenants" ADD COLUMN "features_off" text[] DEFAULT '{}' NOT NULL;

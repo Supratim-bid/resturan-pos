@@ -33,3 +33,16 @@ export async function verifyAdmin(token?: string): Promise<AdminPayload | null> 
     return payload.typ === "admin" ? (payload as unknown as AdminPayload) : null;
   } catch { return null; }
 }
+
+// customer's verified mobile (after SMS OTP) for online orders - per restaurant
+export const PHONE_COOKIE = "ao_phone";
+export async function signPhone(tid: number, phone: string) {
+  return new SignJWT({ tid, phone, typ: "phone" }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("90d").sign(key());
+}
+export async function verifyPhone(token: string | undefined, tid: number): Promise<string | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, key());
+    return payload.typ === "phone" && payload.tid === tid && typeof payload.phone === "string" ? payload.phone : null;
+  } catch { return null; }
+}

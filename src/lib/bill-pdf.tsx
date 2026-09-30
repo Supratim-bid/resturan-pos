@@ -3,7 +3,7 @@ import path from "node:path";
 import React from "react";
 import { Document, Font, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { loadBill, logoDataUrl, qrDataUrl } from "./bill";
-import { fmtDate, fmtDateTime, fmtTime, inr2 } from "./format";
+import { fmtDate, fmtDateTime, fmtTime, inr2, phoneLine } from "./format";
 
 // Carlito has the ₹ sign; bundled in assets/fonts (also used by the thermal receipt image)
 let fontsReady = false;
@@ -73,7 +73,8 @@ export async function renderBillPdf(tenantId: number, orderId: number) {
           {s.tagline ? <Text style={st.italic}>{s.tagline}</Text> : null}
           {s.billHeaderNote ? <Text style={st.pill}>{s.billHeaderNote}</Text> : null}
           {s.address ? <Text>{s.address}</Text> : null}
-          {s.phone ? <Text>Ph: {s.phone}{s.email ? ` · ${s.email}` : ""}</Text> : null}
+          {phoneLine(s).map((l) => <Text key={l}>{l}</Text>)}
+          {s.email ? <Text>{s.email}</Text> : null}
           {s.gstin ? <Text>GSTIN: {s.gstin}</Text> : null}
           {s.fssai ? <Text>FSSAI: {s.fssai}</Text> : null}
         </View>

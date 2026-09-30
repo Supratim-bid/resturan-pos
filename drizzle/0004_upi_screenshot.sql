@@ -1,0 +1,1 @@
+ALTER TABLE "online_orders" ADD COLUMN "pay_proof_image_id" integer;

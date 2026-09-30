@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { addUpiRefAction } from "@/app/actions/online";
+import { addPaymentProofAction } from "@/app/actions/online";
+import { resize } from "@/components/image-input";
 
 /** Reloads the page data every few seconds (while an order is waiting) */
 export function AutoRefresh({ seconds }: { seconds: number }) {
@@ -13,22 +14,32 @@ export function AutoRefresh({ seconds }: { seconds: number }) {
   return null;
 }
 
-/** Customer enters the UPI transaction number after paying */
-export function UpiRefForm({ code, token, current }: { code: string; token: string; current: string }) {
-  const [v, setV] = useState(current);
-  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(current ? { ok: true, t: "Thanks - the restaurant will check your payment." } : null);
-  const [pending, start] = useTransition();
+/** Optional: customer attaches a screenshot of the UPI payment */
+export function PaymentProof({ code, token, has }: { code: string; token: string; has: boolean }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [done, setDone] = useState(has);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const router = useRouter();
   return (
-    <form className="space-y-2 text-left" onSubmit={(e) => { e.preventDefault(); start(async () => {
-      const r = await addUpiRefAction(code, token, v);
-      setMsg(r.ok ? { ok: true, t: "Thanks - the restaurant will check your payment." } : { ok: false, t: r.error });
-    }); }}>
-      <label className="label" htmlFor="utr">After paying, enter the UPI transaction ID (UTR)</label>
-      <div className="flex gap-2">
-        <input id="utr" className="input" inputMode="numeric" value={v} onChange={(e) => setV(e.target.value)} placeholder="e.g. 427812345678" />
-        <button className="btn-primary shrink-0" disabled={pending}>{pending ? "…" : "Send"}</button>
-      </div>
-      {msg && <p className={`text-xs ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</p>}
-    </form>
+    <div className="space-y-2 border-t border-line pt-3">
+      {done ? <p className="text-sm font-semibold text-emerald-700">✓ Payment screenshot sent to the restaurant</p>
+        : <p className="text-sm">After paying, you can attach a screenshot of the payment <span className="text-muted">(optional - it helps the restaurant confirm faster)</span>.</p>}
+      <button type="button" className="btn-ghost" disabled={busy} onClick={() => ref.current?.click()}>{busy ? "Sending…" : done ? "Change screenshot" : "📸 Attach payment screenshot"}</button>
+      {err && <p className="text-xs text-red-700">{err}</p>}
+      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={async (e) => {
+        const f = e.target.files?.[0]; e.target.value = "";
+        if (!f) return;
+        setErr(""); setBusy(true);
+        try {
+          if (!f.type.startsWith("image/")) throw new Error("Please choose a photo.");
+          const { blob, w, h } = await resize(f, 1400, "image/jpeg");
+          const fd = new FormData(); fd.append("file", blob, "payment.jpg"); fd.append("w", String(w)); fd.append("h", String(h));
+          const r = await addPaymentProofAction(code, token, fd);
+          if (!r.ok) throw new Error(r.error);
+          setDone(true); router.refresh();
+        } catch (x) { setErr(String((x as Error).message)); } finally { setBusy(false); }
+      }} />
+    </div>
   );
 }

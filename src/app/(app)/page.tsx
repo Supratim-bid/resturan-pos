@@ -9,6 +9,7 @@ import { addDays, fmtDate, inr, monthLabel, monthStart, todayIST } from "@/lib/f
 import { customerBalances } from "@/lib/orders";
 import { dailySeries, expenseTotal, itemSales, salesSummary, platformCommission } from "@/lib/reports";
 import { Badge, Card, Empty, LinkBtn, PageHeader, Stat } from "@/components/ui";
+import { balancesBefore } from "@/lib/money";
 import { DailySalesChart } from "@/components/charts";
 
 export default async function Dashboard() {
@@ -36,6 +37,7 @@ export default async function Dashboard() {
     .where(and(eq(schema.orders.tenantId, T), eq(schema.orders.status, "CANCELLED"))).groupBy(schema.orders.id, schema.orders.billNo)
     .having(sql`sum(${schema.payments.amount}) > 0.5`).limit(10);
   const onlineNew = can(u, "onlineOrders") ? Number((await db.select({ n: sql<number>`count(*)` }).from(schema.onlineOrders).where(and(eq(schema.onlineOrders.tenantId, T), eq(schema.onlineOrders.status, "NEW"))))[0].n) : 0;
+  const money = can(u, "money") ? await balancesBefore(T, addDays(today, 1)) : null;
   const cancelReqs = await db.query.orders.findMany({ where: and(eq(schema.orders.tenantId, T), eq(schema.orders.cancelStatus, "REQUESTED")), limit: 10 });
   const sq = new Map(stockRows.map((s) => [s.id, Number(s.q)]));
   const started = new Set(stockRows.filter((s) => s.started).map((s) => s.id));
@@ -73,6 +75,13 @@ export default async function Dashboard() {
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
           <b>Cancelled bills still holding money:</b> {stuck.map((x, i) => <span key={x.id}>{i ? ", " : " "}<Link className="font-semibold underline" href={`/orders/${x.id}`}>{x.billNo} (₹{Number(x.s).toLocaleString("en-IN")})</Link></span>)}. Open each to refund it or keep it as advance.
         </div>
+      )}
+      {money && (
+        <Link href="/money" className="mb-5 grid grid-cols-3 gap-2 rounded-2xl bg-white p-3 ring-1 ring-line hover:ring-brand">
+          <div><div className="text-[11px] font-semibold uppercase text-muted">💵 Cash in hand</div><div className="text-lg font-extrabold tabular-nums">{inr(money.CASH)}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-muted">📱 Online / Bank</div><div className="text-lg font-extrabold tabular-nums">{inr(money.BANK)}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-brand">🏦 Total money</div><div className="text-lg font-extrabold tabular-nums text-brand">{inr(money.CASH + money.BANK)}</div></div>
+        </Link>
       )}
       <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Today</h2>
       <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">

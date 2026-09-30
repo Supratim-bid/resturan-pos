@@ -47,6 +47,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         subtitle={<>{fmtDate(o.date)} · {o.orderType}{o.tableNo ? ` · Table ${o.tableNo}` : ""} · by {o.createdBy?.name ?? "—"} · {fmtDateTime(o.createdAt)}</>}
         actions={<>
           <Link href={`/bill/${o.id}`} className="btn-primary">🧾 Bill / Print</Link>
+          {o.kotNo && <Link href={`/kot/${o.id}`} className="btn-gold">🍳 Print KOT #{o.kotNo}</Link>}
           <SharePdfButton orderId={o.id} billNo={o.billNo} phone={o.customer?.phone ?? ""} message={msg} label="📄 WhatsApp bill (PDF)" />
           <a href={wa} target="_blank" className="btn-ghost">WhatsApp text</a>
           {editable && o.status === "ACTIVE" && o.cancelStatus !== "REQUESTED" && <Link href={`/orders/${o.id}/edit`} className="btn-ghost">Edit</Link>}
@@ -56,6 +57,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         <Badge tone={st.tone}>{st.label}</Badge>
         {o.status === "CANCELLED" && <Badge tone="gray">Cancelled</Badge>}
         {o.isPreorder && <Badge tone="amber">Pre-order</Badge>}
+        {o.kotNo && <Badge tone={o.kotStatus === "READY" || o.kotStatus === "SERVED" ? "green" : "amber"}>KOT #{o.kotNo} · {({ NEW: "sent to kitchen", PREPARING: "cooking", READY: "ready", SERVED: "served" } as Record<string, string>)[o.kotStatus] ?? o.kotStatus}</Badge>}
       </div>
       {o.isPreorder && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gold bg-gold-light/40 px-4 py-3 text-sm">

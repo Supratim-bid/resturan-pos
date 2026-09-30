@@ -200,7 +200,7 @@ export function SuperAdmins({ list, meId }: { list: { id: number; email: string;
 }
 
 /** Extra features for one restaurant (switched on by the super admin on request) */
-export function TenantFeatures({ id, features: initial }: { id: number; features: string[] }) {
+export function TenantFeatures({ id, features: initial, off = [] }: { id: number; features: string[]; off?: string[] }) {
   const [features, setFeatures] = useState(initial);
   const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
@@ -213,7 +213,8 @@ export function TenantFeatures({ id, features: initial }: { id: number; features
           <label key={k} className="flex items-start gap-3 rounded-xl border border-line p-3">
             <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on} disabled={pending}
               onChange={(e) => { const want = e.target.checked; setFeatures((f) => want ? [...f, k] : f.filter((x) => x !== k)); start(async () => { const r = await setTenantFeatureAction(id, k, want); if (!r.ok) setFeatures(initial); setM(r.ok ? { ok: true, t: `${FEATURES[k].label}: ${r.msg}` } : { ok: false, t: r.error }); router.refresh(); }); }} />
-            <span><b>{FEATURES[k].label}</b> {on ? <span className="ml-1 rounded-full bg-emerald-100 px-2 text-[11px] font-bold text-emerald-800">ON</span> : <span className="ml-1 rounded-full bg-stone-100 px-2 text-[11px] font-bold text-stone-600">OFF</span>}
+            <span><b>{FEATURES[k].label}</b> {on ? <span className="ml-1 rounded-full bg-emerald-100 px-2 text-[11px] font-bold text-emerald-800">ALLOWED</span> : <span className="ml-1 rounded-full bg-stone-100 px-2 text-[11px] font-bold text-stone-600">OFF</span>}
+              {on && off.includes(k) && <span className="ml-1 rounded-full bg-amber-100 px-2 text-[11px] font-bold text-amber-900">owner has it switched off</span>}
               <span className="block text-xs text-muted">{FEATURES[k].help}</span></span>
           </label>
         );

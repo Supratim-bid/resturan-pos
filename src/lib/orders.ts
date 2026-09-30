@@ -24,6 +24,8 @@ export type OrderInput = {
   isPreorder?: boolean;
   mealSlot?: string;
   slotTime?: string;
+  /** send a KOT to the kitchen (restaurants with the KOT feature) */
+  kot?: boolean;
 };
 
 /** Your cost for one piece, and the price used only when an order charges packaging (blank = same as cost) */
@@ -158,12 +160,33 @@ export async function saveOrder(tenantId: number, input: OrderInput, userId: num
   };
   if (input.isPreorder && !base.mealSlot) throw new Error("Pick the meal (breakfast / lunch / dinner) for this pre-order.");
 
+  // KOT: a new number per day; an edited order goes back to the kitchen as "updated"
+  const kotNext = async (tx: typeof db, date: string) => {
+    const [{ mx }] = await tx.select({ mx: sql<number>`coalesce(max(${schema.orders.kotNo}),0)` }).from(schema.orders)
+      .where(and(eq(schema.orders.tenantId, tenantId), eq(schema.orders.date, date)));
+    return Number(mx) + 1;
+  };
+  const itemsKey = (xs: { menuItemId: number; qty: number | string }[]) => xs.map((x) => `${x.menuItemId}:${Number(x.qty)}`).sort().join(",");
+
   return await db.transaction(async (tx) => {
     let orderId = input.id;
     if (orderId) {
       const prev = await tx.query.orders.findFirst({ where: and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, tenantId)) });
+      let kot = {};
+      if (prev?.kotNo) {
+        const old = await tx.query.orderItems.findMany({ where: eq(schema.orderItems.orderId, orderId) });
+        const changed = itemsKey(old) !== itemsKey(lines) || (prev.notes ?? "") !== base.notes;
+        const moved = prev.date !== base.date;
+        if (changed || moved) {
+          if (moved) await tx.execute(sql`select pg_advisory_xact_lock(${tenantId})`);
+          kot = { kotStatus: "NEW", kotAt: new Date(), kotUpdated: true, ...(moved ? { kotNo: await kotNext(tx as unknown as typeof db, base.date) } : {}) };
+        }
+      } else if (input.kot) {
+        await tx.execute(sql`select pg_advisory_xact_lock(${tenantId})`);
+        kot = { kotNo: await kotNext(tx as unknown as typeof db, base.date), kotStatus: "NEW", kotAt: new Date(), kotUpdated: false };
+      }
       await tx.update(schema.orders).set({
-        ...base,
+        ...base, ...kot,
         bookedOn: base.isPreorder ? (prev?.bookedOn ?? todayIST()) : null,
         fulfilStatus: base.isPreorder ? (prev?.fulfilStatus || "PENDING") : "",
       }).where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, tenantId)));
@@ -176,7 +199,8 @@ export async function saveOrder(tenantId: number, input: OrderInput, userId: num
       const fy = setting.billUseFy ? financialYear(input.date) : "";
       const orderNo = await nextFreeNo(tx as unknown as typeof db, tenantId, fy, setting.billStart || 1, setting.reuseCancelledNo);
       const billNo = formatBillNo(setting, orderNo, fy);
-      const [row] = await tx.insert(schema.orders).values({ ...base, tenantId, orderNo, fy, billNo, createdById: userId, bookedOn: base.isPreorder ? todayIST() : null, fulfilStatus: base.isPreorder ? "PENDING" : "" }).returning({ id: schema.orders.id });
+      const kot = input.kot ? { kotNo: await kotNext(tx as unknown as typeof db, base.date), kotStatus: "NEW", kotAt: new Date() } : {};
+      const [row] = await tx.insert(schema.orders).values({ ...base, ...kot, tenantId, orderNo, fy, billNo, createdById: userId, bookedOn: base.isPreorder ? todayIST() : null, fulfilStatus: base.isPreorder ? "PENDING" : "" }).returning({ id: schema.orders.id });
       orderId = row.id;
     }
     await tx.insert(schema.orderItems).values(lines.map((l) => ({ ...l, orderId: orderId! })));

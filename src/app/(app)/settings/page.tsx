@@ -6,7 +6,7 @@ import { resolveOptions } from "@/lib/options";
 import { effectivePerms } from "@/lib/permissions";
 import { Card, PageHeader } from "@/components/ui";
 import { CrudManager } from "@/components/crud";
-import { PaymentSettings, SettingsForm, UsersManager } from "@/components/settings-forms";
+import { OwnFeatures, PaymentSettings, SettingsForm, UsersManager } from "@/components/settings-forms";
 import { headers } from "next/headers";
 import { LogoSettings, QrSettings } from "@/components/logo-settings";
 
@@ -33,6 +33,7 @@ export default async function Settings() {
   return (
     <div className="space-y-4">
       <PageHeader title="Settings & Users" subtitle={<>Restaurant code for staff login: <b className="font-mono text-ink">{tenant?.code}</b> · login link: <a className="font-mono text-brand underline" href={`/${tenant?.code}`}>{origin.replace(/^https?:\/\//, "")}/{tenant?.code}</a></>} />
+      <Card title="Extra features"><OwnFeatures allowed={tenant?.features ?? []} off={tenant?.featuresOff ?? []} /></Card>
       <Card title="Logo"><LogoSettings custom={!!s?.logoImageId} /></Card>
       <Card title="Payment QR on bills"><QrSettings imageId={s?.qrImageId ?? null} upiId={s?.upiId ?? ""} /></Card>
       <Card title="Logins & access">

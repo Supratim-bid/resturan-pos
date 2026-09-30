@@ -11,6 +11,8 @@ import { saveOrder } from "@/lib/orders";
 import { lookupValues } from "@/lib/options";
 import { addDays, round2, todayIST } from "@/lib/format";
 import { assertNotLocked, clientIp, recordFailure } from "@/lib/throttle";
+import { PHONE_COOKIE, signPhone, verifyPhone } from "@/lib/session";
+import { sendSms, smsReady } from "@/lib/sms";
 
 type R<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 const fail = (e: unknown) => ({ ok: false as const, error: String((e as Error)?.message ?? e).replace(/^Error:\s*/, "") });
@@ -19,7 +21,7 @@ const clean = (v: unknown, max: number) => String(v ?? "").replace(/[\u0000-\u00
 export type PlaceOrderInput = {
   name: string; phone: string; kind: "DELIVERY" | "TAKEAWAY";
   isPreorder: boolean; date?: string; mealSlot?: string; slotTime?: string;
-  flat?: string; area?: string; notes?: string; payMethod: "COD" | "UPI";
+  flat?: string; area?: string; notes?: string; payMethod?: "UPI" | "COD";
   items: { menuItemId: number; qty: number }[];
   website?: string; // honeypot: real people never fill this
 };
@@ -30,7 +32,7 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
   try {
     const store = await loadStorefront(code);
     if (!store) throw new Error("This restaurant is not taking online orders.");
-    const { tenant, s, config } = store;
+    const { tenant, config } = store;
     if (!config.open) throw new Error(config.closedMsg || "Online orders are closed right now.");
     if (v.website) throw new Error("Could not place the order.");
     const name = clean(v.name, 60);
@@ -52,7 +54,14 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
       if (!config.mealSlots.includes(mealSlot)) throw new Error("Pick the meal (breakfast / lunch / dinner).");
       slotTime = /^\d{2}:\d{2}$/.test(v.slotTime ?? "") ? v.slotTime! : "";
     }
-    const payMethod = v.payMethod === "UPI" && config.upi ? "UPI" : "COD";
+    // payment: only the ways the restaurant allows
+    const payMethod = v.payMethod === "COD" ? "COD" : "UPI";
+    if (payMethod === "UPI" && !config.payUpi) throw new Error("Paying by UPI is not available. Please choose another way to pay.");
+    if (payMethod === "COD" && !config.payCash) throw new Error("Cash payment is not available. Please pay by UPI.");
+    // mobile verified by OTP (only when the restaurant turned it on and SMS is connected)
+    if (config.otp && (await verifyPhone((await cookies()).get(PHONE_COOKIE)?.value, tenant.id)) !== p10) {
+      throw new Error("Please verify your mobile number with the OTP first.");
+    }
     // anti-spam: at most 10 orders per network and 5 per phone in 15 minutes, 3 waiting orders per phone
     const ip = await clientIp();
     const keys = [`order-ip:${ip}`, `order-phone:${tenant.id}:${p10}`];
@@ -70,7 +79,6 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
 
     const priced = await priceCart(tenant.id, v.items ?? [], { delivery: kind === "DELIVERY" });
     if (priced.itemsTotal < Number(config.minOrder || 0)) throw new Error(`Minimum order is ₹${config.minOrder}. Please add a little more.`);
-    if (isNew && config.newUpiOnly && payMethod !== "UPI") throw new Error("For your first order with us, please choose \"Pay now by UPI\".");
     if (isNew && config.newMax > 0 && priced.total > config.newMax) throw new Error(`For a first order the limit is ₹${config.newMax}. Please call the restaurant for bigger orders.`);
 
     if (!cust) {
@@ -85,14 +93,13 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
       dev = newDeviceId();
       jar.set(DEVICE_COOKIE, dev, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 400 * 86400 });
     }
-    const verifyCode = s.onlineWaConfirm ? String(crypto.randomInt(1000, 10000)) : "";
     const token = crypto.randomBytes(18).toString("base64url");
     await db.insert(schema.onlineOrders).values({
       tenantId: tenant.id, token, customerId: cust.id, name, phone: p10,
       address: kind === "DELIVERY" ? [flat, area].filter(Boolean).join(", ") : "",
       kind, isPreorder: !!v.isPreorder, date, mealSlot, slotTime,
       items: JSON.stringify(priced.lines), estTotal: priced.total, payMethod, notes: clean(v.notes, 300), ip,
-      verifyCode, device: deviceHash(tenant.id, dev),
+      device: deviceHash(tenant.id, dev),
     });
     await recordFailure([{ key: keys[0], limit: 10 }, { key: keys[1], limit: 5 }]); // counts orders, not failures
     revalidatePath("/online-orders"); revalidatePath("/");
@@ -101,15 +108,75 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
   redirect(dest);
 }
 
-/** Customer typed the UPI transaction id after paying */
-export async function addUpiRefAction(code: string, token: string, ref: string): Promise<R> {
+// ---------------- SMS OTP for the customer's mobile (off until an SMS provider is connected) ----------------
+const otpHash = (tid: number, phone: string, code: string) =>
+  crypto.createHmac("sha256", process.env.AUTH_SECRET ?? "").update(`${tid}:${phone}:${code}`).digest("hex");
+
+export async function sendPhoneOtpAction(code: string, phone: string): Promise<R> {
   try {
-    const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.code, code.toLowerCase()) });
-    const o = t ? await db.query.onlineOrders.findFirst({ where: and(eq(schema.onlineOrders.token, token), eq(schema.onlineOrders.tenantId, t.id)) }) : null;
+    const store = await loadStorefront(code);
+    if (!store || !store.config.otp) throw new Error("OTP is not available.");
+    const tid = store.tenant.id;
+    const p10 = String(phone ?? "").replace(/\D/g, "").slice(-10);
+    if (!/^[6-9]\d{9}$/.test(p10)) throw new Error("Please enter a valid 10-digit mobile number.");
+    const ip = await clientIp();
+    const keys = [`otp-phone:${tid}:${p10}`, `otp-ip:${ip}`];
+    await assertNotLocked(keys).catch(() => { throw new Error("Too many codes requested. Please wait a few minutes."); });
+    const last = await db.query.phoneOtps.findFirst({ where: and(eq(schema.phoneOtps.tenantId, tid), eq(schema.phoneOtps.phone, p10)), orderBy: (t, { desc }) => [desc(t.id)] });
+    const age = last ? Date.now() - last.createdAt.getTime() : Infinity;
+    if (age >= 0 && age < 45_000) throw new Error("A code was just sent. Please wait a moment before asking again.");
+    const otp = String(crypto.randomInt(100000, 1000000));
+    const [row] = await db.insert(schema.phoneOtps).values({ tenantId: tid, phone: p10, codeHash: otpHash(tid, p10, otp), expiresAt: new Date(Date.now() + 10 * 60_000) }).returning({ id: schema.phoneOtps.id });
+    try {
+      await sendSms(p10, `${otp} is your code to order from ${store.config.name}. It is valid for 10 minutes.`);
+    } catch (e) {
+      await db.delete(schema.phoneOtps).where(eq(schema.phoneOtps.id, row.id));
+      throw e;
+    }
+    await recordFailure([{ key: keys[0], limit: 5 }, { key: keys[1], limit: 20 }]); // counts codes sent
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+export async function verifyPhoneOtpAction(code: string, phone: string, otp: string): Promise<R> {
+  try {
+    const store = await loadStorefront(code);
+    if (!store || !store.config.otp || !smsReady()) throw new Error("OTP is not available.");
+    const tid = store.tenant.id;
+    const p10 = String(phone ?? "").replace(/\D/g, "").slice(-10);
+    const row = await db.query.phoneOtps.findFirst({ where: and(eq(schema.phoneOtps.tenantId, tid), eq(schema.phoneOtps.phone, p10), eq(schema.phoneOtps.used, false)), orderBy: (t, { desc }) => [desc(t.id)] });
+    if (!row || row.expiresAt < new Date()) throw new Error("Code expired. Please ask for a new one.");
+    if (row.attempts >= 5) throw new Error("Too many wrong tries. Please ask for a new code.");
+    const a = Buffer.from(otpHash(tid, p10, String(otp ?? "").replace(/\D/g, ""))), b = Buffer.from(row.codeHash);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      await db.update(schema.phoneOtps).set({ attempts: sql`${schema.phoneOtps.attempts} + 1` }).where(eq(schema.phoneOtps.id, row.id));
+      throw new Error("Wrong code. Please check the SMS and try again.");
+    }
+    await db.update(schema.phoneOtps).set({ used: true }).where(eq(schema.phoneOtps.id, row.id));
+    (await cookies()).set(PHONE_COOKIE, await signPhone(tid, p10), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 90 * 86400 });
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+const PROOF_TYPES = ["image/jpeg", "image/png", "image/webp"];
+/** Customer attaches a screenshot of their UPI payment (optional). Only staff can see it. */
+export async function addPaymentProofAction(code: string, token: string, fd: FormData): Promise<R> {
+  try {
+    const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.code, String(code).toLowerCase()) });
+    const o = t && /^[\w-]{16,40}$/.test(token) ? await db.query.onlineOrders.findFirst({ where: and(eq(schema.onlineOrders.token, token), eq(schema.onlineOrders.tenantId, t.id)) }) : null;
     if (!o) throw new Error("Order not found.");
-    const r = clean(ref, 40).replace(/[^\w-]/g, "");
-    if (r.length < 6) throw new Error("Enter the UPI transaction / reference number (UTR) from your payment app.");
-    await db.update(schema.onlineOrders).set({ upiRef: r }).where(eq(schema.onlineOrders.id, o.id));
+    if (o.status !== "NEW") throw new Error("The restaurant has already handled this order.");
+    const f = fd.get("file");
+    if (!(f instanceof Blob)) throw new Error("No photo received.");
+    if (!PROOF_TYPES.includes(f.type)) throw new Error("Please choose a photo (JPG or PNG).");
+    if (f.size > 1_500_000) throw new Error("The photo is too large. Please try again.");
+    const ip = await clientIp();
+    const key = `proof-ip:${ip}`;
+    await assertNotLocked([key]).catch(() => { throw new Error("Too many uploads. Please wait a few minutes."); });
+    const [img] = await db.insert(schema.images).values({ tenantId: o.tenantId, mime: f.type, data: Buffer.from(await f.arrayBuffer()), width: Number(fd.get("w")) || null, height: Number(fd.get("h")) || null }).returning({ id: schema.images.id });
+    await db.update(schema.onlineOrders).set({ payProofImageId: img.id }).where(eq(schema.onlineOrders.id, o.id));
+    if (o.payProofImageId) await db.delete(schema.images).where(and(eq(schema.images.id, o.payProofImageId), eq(schema.images.tenantId, o.tenantId)));
+    await recordFailure([{ key, limit: 20 }]); // counts uploads
     revalidatePath("/online-orders");
     return { ok: true };
   } catch (e) { return fail(e); }
@@ -140,16 +207,17 @@ export async function acceptOnlineOrderAction(id: number, upiReceived: boolean):
         items: lines.map((l) => ({ menuItemId: l.menuItemId, qty: l.qty, discount: 0 })),
         deliveryCharge: delivery ? Number(s?.defaultDeliveryCharge ?? 0) : 0, packingCharge: 0, orderDiscount: 0,
         notes, isPreorder: claimed.isPreorder, mealSlot: claimed.mealSlot, slotTime: claimed.slotTime,
+        kot: u.features.includes("kot"),
       }, u.id);
       if (upiReceived) {
         const o = await db.query.orders.findFirst({ where: eq(schema.orders.id, orderId) });
         if (o) await db.insert(schema.payments).values({
           tenantId: u.tenantId, orderId, customerId: o.customerId, amount: round2(Number(o.total)), mode: "UPI", date: todayIST(),
-          ref: claimed.upiRef ? `upi:${claimed.upiRef}` : "", notes: claimed.upiRef ? `Online order · UTR ${claimed.upiRef}` : "Online order",
+          notes: "Online order - paid by UPI (checked by staff)",
         });
       }
       await db.update(schema.onlineOrders).set({ status: "ACCEPTED", orderId }).where(eq(schema.onlineOrders.id, id));
-      revalidatePath("/online-orders"); revalidatePath("/orders"); revalidatePath("/");
+      revalidatePath("/online-orders"); revalidatePath("/orders"); revalidatePath("/kot"); revalidatePath("/");
       return { ok: true, data: orderId };
     } catch (e) {
       await db.update(schema.onlineOrders).set({ status: "NEW", decidedById: null, decidedAt: null }).where(eq(schema.onlineOrders.id, id));
@@ -179,10 +247,12 @@ export async function saveOnlineSettingsAction(v: Record<string, string>): Promi
     if (!Number.isFinite(min) || min < 0) throw new Error("Minimum order must be a number.");
     const newMax = Number(v.onlineNewMax || 0);
     if (!Number.isFinite(newMax) || newMax < 0) throw new Error("First-order limit must be a number.");
+    if (v.onlinePayUpi !== "true" && v.onlinePayCash !== "true") throw new Error("Choose at least one way customers can pay.");
     await db.update(schema.settings).set({
       onlineOpen: v.onlineOpen === "true", onlineClosedMsg: clean(v.onlineClosedMsg, 200), onlineNote: clean(v.onlineNote, 300),
       onlineDelivery: v.onlineDelivery === "true", onlineTakeaway: v.onlineTakeaway === "true", onlinePreorder: v.onlinePreorder === "true",
-      onlineMinOrder: round2(min), onlineWaConfirm: v.onlineWaConfirm === "true", onlineNewUpiOnly: v.onlineNewUpiOnly === "true", onlineNewMax: round2(newMax),
+      onlineMinOrder: round2(min), onlineNewMax: round2(newMax),
+      onlinePayUpi: v.onlinePayUpi === "true", onlinePayCash: v.onlinePayCash === "true", onlineOtp: v.onlineOtp === "true" && smsReady(),
       onlineDeliveryType: clean(v.onlineDeliveryType, 40) || "Delivery", onlineTakeawayType: clean(v.onlineTakeawayType, 40) || "Takeaway",
     }).where(eq(schema.settings.tenantId, u.tenantId));
     revalidatePath("/online-orders");
@@ -195,16 +265,6 @@ export async function setOnlineOpenAction(open: boolean): Promise<R> {
   try {
     const u = await requireAction("onlineOrders");
     await db.update(schema.settings).set({ onlineOpen: open }).where(eq(schema.settings.tenantId, u.tenantId));
-    revalidatePath("/online-orders");
-    return { ok: true };
-  } catch (e) { return fail(e); }
-}
-
-/** Staff saw the customer's WhatsApp message with the code */
-export async function setWaConfirmedAction(id: number, on: boolean): Promise<R> {
-  try {
-    const u = await requireAction("onlineOrders");
-    await db.update(schema.onlineOrders).set({ waConfirmed: on }).where(and(eq(schema.onlineOrders.id, id), eq(schema.onlineOrders.tenantId, u.tenantId)));
     revalidatePath("/online-orders");
     return { ok: true };
   } catch (e) { return fail(e); }

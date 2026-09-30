@@ -142,7 +142,8 @@ export async function setTenantFeatureAction(id: number, feature: FeatureKey, on
     if (!t) throw new Error("Restaurant not found.");
     const next = new Set(t.features ?? []);
     if (on) next.add(feature); else next.delete(feature);
-    await db.update(schema.tenants).set({ features: [...next] }).where(eq(schema.tenants.id, id));
+    // granting a feature also switches it on for the owner (they can turn it off again in Settings)
+    await db.update(schema.tenants).set({ features: [...next], featuresOff: (t.featuresOff ?? []).filter((f) => !(on && f === feature)) }).where(eq(schema.tenants.id, id));
     revalidatePath(`/admin/restaurants/${id}`); revalidatePath("/admin");
     return { ok: true, msg: on ? "Switched on." : "Switched off." };
   } catch (e) { return err(e); }

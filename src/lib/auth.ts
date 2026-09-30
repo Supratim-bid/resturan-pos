@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { COOKIE, ADMIN_COOKIE, verifySession, verifyAdmin } from "./session";
 import { can, effectivePerms, type PermKey, type Role } from "./permissions";
-import { FEATURE_TABS } from "./features";
+import { FEATURE_TABS, activeFeatures } from "./features";
 
 export type CurrentUser = { id: number; tenantId: number; tenantCode: string; name: string; username: string; role: Role; perms: PermKey[]; features: string[] };
 
@@ -17,8 +17,8 @@ export async function getUser(): Promise<CurrentUser | null> {
   if (!u || !u.active || u.sessionVersion !== s.v || u.tenantId !== s.tid) return null;
   const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, u.tenantId) });
   if (!t || !t.active) return null;
-  const features = t.features ?? [];
-  // a tab that belongs to a feature is hidden until the super admin switches the feature on
+  const features = activeFeatures(t);
+  // a tab that belongs to a feature is hidden until the super admin switches the feature on (and the owner has not switched it off)
   const perms = effectivePerms(u.role, u.permissions).filter((k) => !FEATURE_TABS[k] || features.includes(FEATURE_TABS[k]));
   return { id: u.id, tenantId: u.tenantId, tenantCode: t.code, name: u.name, username: u.username, role: u.role, perms, features };
 }

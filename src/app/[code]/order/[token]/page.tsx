@@ -5,10 +5,10 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { isRestaurantPath } from "@/lib/reserved";
 import { themeCss } from "@/lib/theme";
-import { upiForOnline, waConfirmLink, type OnlineLine } from "@/lib/online";
+import { upiForOnline, type OnlineLine } from "@/lib/online";
 import { qrDataUrl } from "@/lib/bill";
-import { fmtDate, fmtTime, inr } from "@/lib/format";
-import { AutoRefresh, UpiRefForm } from "@/components/order-status";
+import { fmtDate, fmtTime, inr, restaurantPhones } from "@/lib/format";
+import { AutoRefresh, PaymentProof } from "@/components/order-status";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Your order", robots: { index: false } };
@@ -31,8 +31,7 @@ export default async function OrderStatus({ params }: { params: Promise<{ code: 
   const showUpi = o.payMethod === "UPI" && o.status !== "REJECTED" && due > 0.5 && s;
   const upi = showUpi ? upiForOnline(s!, due, `Online order ${o.id}`) : null;
   const qr = upi?.kind === "upi" ? await qrDataUrl(upi.text, 260) : upi?.kind === "image" ? `/img/${upi.imageId}` : null;
-  const phone = (s?.phone ?? "").replace(/\D/g, "");
-  const wa = o.status === "NEW" && !o.waConfirmed ? waConfirmLink(s?.phone, o) : "";
+  const phones = s ? restaurantPhones(s) : [];
   const state = o.status === "REJECTED" ? { icon: "❌", title: "Order not accepted", tone: "bg-red-50 text-red-800" }
     : o.status === "ACCEPTED" ? { icon: "✅", title: "Order confirmed", tone: "bg-emerald-50 text-emerald-800" }
     : { icon: "⏳", title: "Waiting for the restaurant to confirm", tone: "bg-amber-50 text-amber-900" };
@@ -47,20 +46,10 @@ export default async function OrderStatus({ params }: { params: Promise<{ code: 
         <section className={`rounded-2xl px-4 py-4 text-center ${state.tone}`}>
           <div className="text-3xl">{state.icon}</div>
           <h1 className="mt-1 text-lg font-bold">{state.title}</h1>
-          {o.status === "NEW" && <p className="text-sm">This page updates by itself. Keep it open or come back to this link.</p>}
+          {o.status === "NEW" && <p className="text-sm">{o.payMethod === "UPI" && due > 0.5 ? "Please pay by UPI below. The restaurant will check the payment and confirm your order." : "This page updates by itself. Keep it open or come back to this link."}</p>}
           {o.status === "ACCEPTED" && bill && <p className="text-sm">Bill no. <b>{bill.billNo}</b>. {o.kind === "DELIVERY" ? "We'll deliver it to you." : "We'll have it ready for pickup."}</p>}
           {o.status === "REJECTED" && <p className="text-sm">Reason: {o.rejectReason}</p>}
         </section>
-
-        {wa && (
-          <section className="card space-y-2 border-2 border-emerald-500 text-center">
-            <h2 className="font-bold">Confirm your order on WhatsApp</h2>
-            <p className="text-sm">Tap the button and press <b>Send</b>. It tells the restaurant this order is really from you, so they can accept it faster.</p>
-            <a href={wa} target="_blank" rel="noreferrer" className="inline-block rounded-xl bg-[#25D366] px-5 py-3 font-bold text-white">💬 Confirm on WhatsApp</a>
-            <p className="text-xs text-muted">Your code: <b className="font-mono tracking-widest">{o.verifyCode}</b></p>
-          </section>
-        )}
-        {o.status === "NEW" && o.waConfirmed && <p className="text-center text-sm text-emerald-700">✓ The restaurant got your WhatsApp confirmation.</p>}
 
         {qr && (
           <section className="card space-y-2 text-center">
@@ -68,7 +57,7 @@ export default async function OrderStatus({ params }: { params: Promise<{ code: 
             <img src={qr} alt="UPI QR code" className="mx-auto h-56 w-56 object-contain" />
             {upi?.kind === "upi" && <a href={upi.text} className="btn-primary inline-block">Open UPI app</a>}
             {s?.upiId && <p className="text-xs text-muted">UPI ID: {s.upiId}</p>}
-            {o.status !== "ACCEPTED" && <UpiRefForm code={code} token={token} current={o.upiRef} />}
+            {o.status === "NEW" && <PaymentProof code={code} token={token} has={!!o.payProofImageId} />}
           </section>
         )}
 
@@ -78,12 +67,13 @@ export default async function OrderStatus({ params }: { params: Promise<{ code: 
           <div className="flex justify-between border-t border-line pt-1 font-bold"><span>Total</span><span className="tabular-nums">{inr(total)}</span></div>
           {paid > 0 && <div className="flex justify-between text-emerald-700"><span>Paid</span><span className="tabular-nums">{inr(paid)}</span></div>}
           {o.address && <p className="pt-1 text-xs text-muted">Deliver to: {o.address}</p>}
-          {o.payMethod === "COD" && o.status !== "REJECTED" && <p className="pt-1 text-xs text-muted">Pay {o.kind === "DELIVERY" ? "on delivery" : "at pickup"} (cash or UPI).</p>}
+          {o.payMethod === "COD" && o.status !== "REJECTED" && <p className="pt-1 text-xs text-muted">Pay cash {o.kind === "DELIVERY" ? "on delivery" : "at pickup"}.</p>}
+          {s?.whatsapp && <p className="pt-1 text-xs text-muted">WhatsApp: {s.whatsapp}</p>}
         </section>
 
         {o.status === "ACCEPTED" && bill && <a href={`/${code}/order/${token}/bill`} className="btn-ghost block text-center">📄 Download bill (PDF)</a>}
         <div className="flex flex-wrap justify-center gap-2 text-sm">
-          {phone && <a className="btn-ghost" href={`tel:${phone}`}>📞 Call {phone}</a>}
+          {phones.map((p) => <a key={p} className="btn-ghost" href={`tel:${p.replace(/[^\d+]/g, "")}`}>📞 Call {p}</a>)}
           <Link className="btn-ghost" href={`/${code}/order`}>Order again</Link>
           <Link className="btn-ghost" href={`/${code}/order/my`}>My orders</Link>
         </div>
