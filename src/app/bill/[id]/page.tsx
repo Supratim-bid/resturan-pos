@@ -25,7 +25,8 @@ export default async function Bill({ params, searchParams }: { params: Promise<{
   return (
     <div className="min-h-dvh bg-stone-100 py-4 print:bg-white print:py-0">
       <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor) + (thermal ? `@page{size:${size}mm auto;margin:0}` : "") }} />
-      <PrintBar id={o.id} size={size} billNo={o.billNo} defaultWidth={s.receiptWidth === "80" ? "80" : "58"} />
+      <PrintBar id={o.id} size={size} billNo={o.billNo} defaultWidth={s.receiptWidth === "80" ? "80" : "58"}
+        phone={o.customer?.phone ?? ""} message={`*${s.name}* - Bill ${o.billNo}\nTotal: ₹${Number(o.total)}${due > 0 ? `\nDue: ₹${due}` : "\nPaid - thank you!"}\nYour bill is attached (PDF).`} />
       <div className={`mx-auto bg-white text-black shadow print:shadow-none ${width}`}>
         <div className="text-center">
           {s.billShowLogo && <img src="/logo" alt={s.name} className={`mx-auto mb-1 rounded-full object-cover ${thermal ? "h-16 w-16 grayscale" : "h-28 w-28"}`} />}

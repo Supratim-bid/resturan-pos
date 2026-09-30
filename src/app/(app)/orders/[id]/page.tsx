@@ -8,6 +8,7 @@ import { payStatus } from "@/lib/orders";
 import { lookupValues } from "@/lib/options";
 import { fmtDate, fmtDateTime, fmtTime, inr, inr2, todayIST } from "@/lib/format";
 import { Badge, Card, PageHeader } from "@/components/ui";
+import { SharePdfButton } from "@/components/share-pdf";
 import { DeletePaymentBtn, PaymentForm, CancelPanel, FulfilButtons, PayLinkPanel } from "@/components/order-actions";
 
 export default async function OrderDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ saved?: string }> }) {
@@ -46,7 +47,8 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         subtitle={<>{fmtDate(o.date)} · {o.orderType}{o.tableNo ? ` · Table ${o.tableNo}` : ""} · by {o.createdBy?.name ?? "—"} · {fmtDateTime(o.createdAt)}</>}
         actions={<>
           <Link href={`/bill/${o.id}`} className="btn-primary">🧾 Bill / Print</Link>
-          <a href={wa} target="_blank" className="btn-ghost">WhatsApp</a>
+          <SharePdfButton orderId={o.id} billNo={o.billNo} phone={o.customer?.phone ?? ""} message={msg} label="📄 WhatsApp bill (PDF)" />
+          <a href={wa} target="_blank" className="btn-ghost">WhatsApp text</a>
           {editable && o.status === "ACTIVE" && o.cancelStatus !== "REQUESTED" && <Link href={`/orders/${o.id}/edit`} className="btn-ghost">Edit</Link>}
         </>}
       />

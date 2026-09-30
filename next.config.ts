@@ -14,7 +14,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   experimental: { serverActions: { bodySizeLimit: "2mb" } },
   // bundle the receipt fonts with the thermal-bill image route on Vercel
-  outputFileTracingIncludes: { "/bill/[id]/png": ["./assets/fonts/**"] },
+  outputFileTracingIncludes: { "/bill/[id]/png": ["./assets/fonts/**"], "/bill/[id]/pdf": ["./assets/fonts/**"] },
+  serverExternalPackages: ["@react-pdf/renderer"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

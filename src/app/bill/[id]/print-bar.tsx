@@ -1,9 +1,10 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
+import { SharePdfButton } from "@/components/share-pdf";
 
 /** Print as A4 / 3" / 2", or get the receipt as a PNG image for Bluetooth thermal printers */
-export function PrintBar({ id, size, billNo, defaultWidth }: { id: number; size: "a4" | "80" | "58"; billNo: string; defaultWidth: "58" | "80" }) {
+export function PrintBar({ id, size, billNo, defaultWidth, phone = "", message = "" }: { id: number; size: "a4" | "80" | "58"; billNo: string; defaultWidth: "58" | "80"; phone?: string; message?: string }) {
   const [w, setW] = useState<"58" | "80">(size === "80" ? "80" : size === "58" ? "58" : defaultWidth);
   const [busy, setBusy] = useState(false);
   const file = `bill-${billNo.replace(/[^\w-]+/g, "_")}-${w}mm.png`;
@@ -27,7 +28,13 @@ export function PrintBar({ id, size, billNo, defaultWidth }: { id: number; size:
       <div className="flex flex-wrap items-center gap-2">
         <Link href={`/orders/${id}`} className="btn-ghost btn-sm">← Back</Link>
         {tab("a4", "A4")}{tab("80", "3 inch (80mm)")}{tab("58", "2 inch (58mm)")}
-        <button onClick={() => window.print()} className="btn-primary btn-sm">Print / PDF</button>
+        <button onClick={() => window.print()} className="btn-primary btn-sm">Print</button>
+      </div>
+      <div className="card flex flex-wrap items-center gap-2 !p-2.5">
+        <span className="text-sm font-semibold">A4 PDF:</span>
+        <SharePdfButton orderId={id} billNo={billNo} phone={phone} message={message} className="btn-gold btn-sm" label="Share on WhatsApp" />
+        <a className="btn-ghost btn-sm" href={`/bill/${id}/pdf?download=1`}>Download PDF</a>
+        <a className="text-xs font-semibold text-brand underline" href={`/bill/${id}/pdf`} target="_blank">Preview</a>
       </div>
       <div className="card flex flex-wrap items-center gap-2 !p-2.5">
         <span className="text-sm font-semibold">Thermal image (PNG):</span>
