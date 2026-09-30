@@ -1,0 +1,27 @@
+Restaurant Manager - version 9
+==============================
+
+1. Make sure Postgres.app is open and says "Running".
+2. Put this whole "alooposto-app-v9" folder somewhere simple (e.g. your Desktop).
+3. Open Terminal and run:
+
+     cd ~/Desktop/alooposto-app-v9
+     ./setup-and-run.command
+
+   (If you put the folder elsewhere, change the path.)
+
+4. Open in Chrome:
+     Restaurant login : http://localhost:3000/alooposto
+     Super admin      : http://localhost:3000/admin/login
+                        (Email code tab, or Password tab if SUPERADMIN_PASSWORD is in .env)
+
+Your existing data is in the database, so nothing is lost.
+Next time, just run ./setup-and-run.command again (or: npm run dev inside this folder).
+
+Your settings (.env) are copied automatically from your old alooposto-app folder the
+first time you run the script. The file is hidden in Finder (press Cmd + Shift + . to
+show hidden files) - edit it with TextEdit if needed, e.g. to add
+SUPERADMIN_PASSWORD="choose-10+-characters" for the super admin Password login.
+
+Going online (your own domain): read DEPLOY.md in this folder.
+Backup your data any time:       npm run backup

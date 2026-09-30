@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  /* Alooposto theme: sindoor red + gold, on the logo's cream, with the logo's dark brown for text */
+  --color-brand: #9a1c1f;        /* deep red - primary actions */
+  --color-brand-dark: #761417;
+  --color-brand-light: #f9e9e1;
+  --color-gold: #c8962e;         /* gold - accents, highlights */
+  --color-gold-dark: #9c7219;
+  --color-gold-light: #f6ebcf;
+  --color-turmeric: #c8962e;
+  --color-olive: #4a5a12;        /* logo green - veg marks */
+  --color-cream: #fdf8f2;        /* logo background */
+  --color-ink: #341503;          /* logo brown */
+  --color-muted: #7a6655;
+  --color-line: #ecdcc6;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: Georgia, "Times New Roman", "Noto Serif", serif;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body { background: var(--color-cream); color: var(--color-ink); }
+input, select, textarea { font-size: 16px; } /* stop iOS zoom */
+
+@utility input {
+  @apply w-full rounded-xl border border-line bg-white px-3 py-2.5 text-[15px] outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/25 disabled:bg-stone-100;
+}
+@utility label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-muted; }
+@utility btn { @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none; }
+@utility btn-primary { @apply btn bg-brand text-white shadow-[inset_0_-2px_0_rgba(0,0,0,.18)] hover:bg-brand-dark; }
+@utility btn-gold { @apply btn bg-gold text-ink hover:bg-gold-dark hover:text-white; }
+@utility btn-ghost { @apply btn border border-line bg-white text-ink hover:bg-gold-light; }
+@utility btn-danger { @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50; }
+@utility btn-sm { @apply px-3 py-1.5 text-xs rounded-lg; }
+@utility card { @apply rounded-2xl border border-line bg-white p-4 shadow-[0_1px_2px_rgba(52,21,3,.05)]; }
+@layer components {
+.tbl { @apply w-full text-sm; }
+.tbl th { @apply whitespace-nowrap border-b border-line bg-cream px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted; }
+.tbl td { @apply border-b border-line/70 px-3 py-2 align-top; }
+.tbl tr:last-child td { @apply border-b-0; }
+}
+@utility num { @apply text-right tabular-nums whitespace-nowrap; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+}
+
+.font-display { font-family: var(--font-display); }
+/* thin gold rule under headers, like the logo's divider */
+.gold-rule { background: linear-gradient(90deg, transparent, var(--color-gold), transparent); height: 1px; }
