@@ -7,9 +7,9 @@ import { can } from "@/lib/permissions";
 import { lookupValues } from "@/lib/options";
 import { qrDataUrl } from "@/lib/bill";
 import { fmtDate, fmtDateTime, fmtTime, inr, todayIST } from "@/lib/format";
-import type { OnlineLine } from "@/lib/online";
+import { billCounts, type OnlineLine } from "@/lib/online";
 import { Badge, Card, Empty, PageHeader } from "@/components/ui";
-import { CopyLink, LiveOrders, OnlineOrderActions, OnlineSettings, OpenSwitch } from "@/components/online-orders";
+import { BlockButton, CopyLink, LiveOrders, OnlineOrderActions, OnlineSettings, OpenSwitch, WaConfirm } from "@/components/online-orders";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +33,13 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
   const link = `${origin}/${u.tenantCode}/order`;
   const qr = await qrDataUrl(link, 300);
   const list = show === "new" ? newOnes : done;
+  const custIds = list.map((o) => o.customerId!).filter(Boolean);
+  const [counts, custs, blocked] = await Promise.all([
+    billCounts(T, custIds),
+    custIds.length ? db.query.customers.findMany({ where: and(eq(schema.customers.tenantId, T), inArray(schema.customers.id, custIds)) }) : [],
+    db.query.customers.findMany({ where: and(eq(schema.customers.tenantId, T), eq(schema.customers.onlineBlocked, true)), limit: 200 }),
+  ]);
+  const blockedIds = new Set(custs.filter((c) => c.onlineBlocked).map((c) => c.id));
   const wa = `https://wa.me/?text=${encodeURIComponent(`Order from ${s?.name ?? "us"} online: ${link}`)}`;
   const tab = (k: string, label: string) => <Link href={`/online-orders?show=${k}`} className={`rounded-full px-3 py-1.5 text-sm font-semibold ${show === k ? "bg-brand text-white" : "bg-white ring-1 ring-line"}`}>{label}</Link>;
 
@@ -50,6 +57,10 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
                 <span>{o.name}</span>
                 <Badge tone={o.kind === "DELIVERY" ? "brand" : "gray"}>{o.kind === "DELIVERY" ? "🛵 Delivery" : "🥡 Pickup"}</Badge>
                 {o.isPreorder && <Badge tone="amber">🗓️ {fmtDate(o.date)} · {o.mealSlot}{o.slotTime ? ` · ${fmtTime(o.slotTime)}` : ""}</Badge>}
+                {o.customerId && blockedIds.has(o.customerId) ? <Badge tone="red">🚫 Blocked number</Badge>
+                  : (counts.get(o.customerId ?? 0) ?? 0) > (o.status === "ACCEPTED" ? 1 : 0)
+                    ? <Badge tone="green">✓ Regular · {counts.get(o.customerId!)} bills</Badge>
+                    : <Badge tone="amber">🆕 New number</Badge>}
                 <Badge tone={o.payMethod === "UPI" ? "green" : "gray"}>{o.payMethod === "UPI" ? `UPI${o.upiRef ? " · UTR sent" : ""}` : "Pay on delivery/pickup"}</Badge>
               </span>}>
                 <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -63,7 +74,10 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
                   </div>
                   <div className="text-right text-lg font-bold tabular-nums">{inr(Number(o.estTotal))}<div className="text-xs font-normal text-muted">estimate</div></div>
                 </div>
-                {(o.status === "NEW") && <div className="mt-3 border-t border-line pt-3"><OnlineOrderActions id={o.id} payMethod={o.payMethod} upiRef={o.upiRef} /></div>}
+                {o.status === "NEW" && o.verifyCode && <div className="mt-3"><WaConfirm id={o.id} code={o.verifyCode} phone={o.phone} confirmed={o.waConfirmed} /></div>}
+                {o.status !== "NEW" && o.waConfirmed && <div className="mt-2 text-sm text-emerald-700">✓ Confirmed on WhatsApp</div>}
+                {o.status === "NEW" && <div className="mt-3 border-t border-line pt-3"><OnlineOrderActions id={o.id} payMethod={o.payMethod} upiRef={o.upiRef} canBlock={!!o.customerId} /></div>}
+                {o.status === "REJECTED" && o.customerId && <div className="mt-2"><BlockButton customerId={o.customerId} blocked={blockedIds.has(o.customerId)} /></div>}
                 {o.status === "ACCEPTING" && <p className="mt-2 text-sm text-muted">Being accepted…</p>}
               </Card>
             );
@@ -94,9 +108,19 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
             <OnlineSettings preorderFeature={u.features.includes("preorders")} orderTypes={types.length ? types : ["Delivery", "Takeaway"]} initial={{
               onlineDelivery: String(s?.onlineDelivery ?? true), onlineTakeaway: String(s?.onlineTakeaway ?? true), onlinePreorder: String(s?.onlinePreorder ?? true),
               onlineMinOrder: String(Number(s?.onlineMinOrder ?? 0)), onlineNote: s?.onlineNote ?? "", onlineClosedMsg: s?.onlineClosedMsg ?? "",
+              onlineWaConfirm: String(s?.onlineWaConfirm ?? true), onlineNewUpiOnly: String(s?.onlineNewUpiOnly ?? false), onlineNewMax: String(Number(s?.onlineNewMax ?? 0)),
               onlineDeliveryType: s?.onlineDeliveryType ?? "Delivery", onlineTakeawayType: s?.onlineTakeawayType ?? "Takeaway", onlineOpen: String(s?.onlineOpen ?? true),
-            }} />
+            }} hasPhone={!!(s?.phone ?? "").replace(/\D/g, "")} hasUpi={!!(s?.upiId || s?.qrImageId)} />
           </div>
+        </details>
+      )}
+
+      {blocked.length > 0 && (
+        <details className="card">
+          <summary className="cursor-pointer font-bold">🚫 Blocked numbers ({blocked.length})</summary>
+          <ul className="mt-3 divide-y divide-line text-sm">
+            {blocked.map((c) => <li key={c.id} className="flex items-center justify-between gap-2 py-2"><span>{c.name} · {c.phone}</span><BlockButton customerId={c.id} blocked /></li>)}
+          </ul>
         </details>
       )}
     </div>

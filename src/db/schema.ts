@@ -105,6 +105,10 @@ export const settings = pgTable("settings", {
   onlineMinOrder: money("online_min_order").notNull().default(0),
   onlineDeliveryType: text("online_delivery_type").notNull().default("Delivery"), // order type used when accepting
   onlineTakeawayType: text("online_takeaway_type").notNull().default("Takeaway"),
+  // stopping fake orders (free - no SMS)
+  onlineWaConfirm: boolean("online_wa_confirm").notNull().default(true),   // ask customers to confirm on WhatsApp
+  onlineNewUpiOnly: boolean("online_new_upi_only").notNull().default(false), // first order from a new number must be paid by UPI
+  onlineNewMax: money("online_new_max").notNull().default(0),                // max first order from a new number (0 = no limit)
   // bill design
   billShowLogo: boolean("bill_show_logo").notNull().default(true),
   billHeaderNote: text("bill_header_note").notNull().default(""),   // e.g. "100% homemade · No MSG"
@@ -266,6 +270,7 @@ export const customers = pgTable("customers", {
   email: text("email").notNull().default(""),
   birthday: day("birthday"),
   notes: text("notes").notNull().default(""),
+  onlineBlocked: boolean("online_blocked").notNull().default(false), // can't place online orders
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -370,6 +375,9 @@ export const onlineOrders = pgTable("online_orders", {
   decidedById: integer("decided_by_id"),
   decidedAt: timestamp("decided_at"),
   ip: text("ip").notNull().default(""),
+  verifyCode: text("verify_code").notNull().default(""),      // 4 digits the customer sends on WhatsApp
+  waConfirmed: boolean("wa_confirmed").notNull().default(false), // staff saw the WhatsApp message from this number
+  device: text("device").notNull().default(""),               // hash of the customer's browser id (for "My orders")
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("online_orders_tenant_status").on(t.tenantId, t.status, t.createdAt)]);
 

@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { isRestaurantPath } from "@/lib/reserved";
 import { themeCss } from "@/lib/theme";
-import { upiForOnline, type OnlineLine } from "@/lib/online";
+import { upiForOnline, waConfirmLink, type OnlineLine } from "@/lib/online";
 import { qrDataUrl } from "@/lib/bill";
 import { fmtDate, fmtTime, inr } from "@/lib/format";
 import { AutoRefresh, UpiRefForm } from "@/components/order-status";
@@ -32,6 +32,7 @@ export default async function OrderStatus({ params }: { params: Promise<{ code: 
   const upi = showUpi ? upiForOnline(s!, due, `Online order ${o.id}`) : null;
   const qr = upi?.kind === "upi" ? await qrDataUrl(upi.text, 260) : upi?.kind === "image" ? `/img/${upi.imageId}` : null;
   const phone = (s?.phone ?? "").replace(/\D/g, "");
+  const wa = o.status === "NEW" && !o.waConfirmed ? waConfirmLink(s?.phone, o) : "";
   const state = o.status === "REJECTED" ? { icon: "❌", title: "Order not accepted", tone: "bg-red-50 text-red-800" }
     : o.status === "ACCEPTED" ? { icon: "✅", title: "Order confirmed", tone: "bg-emerald-50 text-emerald-800" }
     : { icon: "⏳", title: "Waiting for the restaurant to confirm", tone: "bg-amber-50 text-amber-900" };
@@ -50,6 +51,16 @@ export default async function OrderStatus({ params }: { params: Promise<{ code: 
           {o.status === "ACCEPTED" && bill && <p className="text-sm">Bill no. <b>{bill.billNo}</b>. {o.kind === "DELIVERY" ? "We'll deliver it to you." : "We'll have it ready for pickup."}</p>}
           {o.status === "REJECTED" && <p className="text-sm">Reason: {o.rejectReason}</p>}
         </section>
+
+        {wa && (
+          <section className="card space-y-2 border-2 border-emerald-500 text-center">
+            <h2 className="font-bold">Confirm your order on WhatsApp</h2>
+            <p className="text-sm">Tap the button and press <b>Send</b>. It tells the restaurant this order is really from you, so they can accept it faster.</p>
+            <a href={wa} target="_blank" rel="noreferrer" className="inline-block rounded-xl bg-[#25D366] px-5 py-3 font-bold text-white">💬 Confirm on WhatsApp</a>
+            <p className="text-xs text-muted">Your code: <b className="font-mono tracking-widest">{o.verifyCode}</b></p>
+          </section>
+        )}
+        {o.status === "NEW" && o.waConfirmed && <p className="text-center text-sm text-emerald-700">✓ The restaurant got your WhatsApp confirmation.</p>}
 
         {qr && (
           <section className="card space-y-2 text-center">
@@ -74,6 +85,7 @@ export default async function OrderStatus({ params }: { params: Promise<{ code: 
         <div className="flex flex-wrap justify-center gap-2 text-sm">
           {phone && <a className="btn-ghost" href={`tel:${phone}`}>📞 Call {phone}</a>}
           <Link className="btn-ghost" href={`/${code}/order`}>Order again</Link>
+          <Link className="btn-ghost" href={`/${code}/order/my`}>My orders</Link>
         </div>
       </main>
     </div>

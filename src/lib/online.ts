@@ -1,5 +1,6 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import crypto from "node:crypto";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { lookupValues } from "./options";
 import { calcTotals } from "./orders";
@@ -32,6 +33,8 @@ export async function loadStorefront(codeRaw: string) {
       delivery: s.onlineDelivery, takeaway: s.onlineTakeaway, preorder: preorderOk,
       minOrder: Number(s.onlineMinOrder), deliveryCharge: Number(s.defaultDeliveryCharge), gstRate: Number(s.gstRate),
       upi: !!(s.upiId || s.qrImageId),
+      waConfirm: s.onlineWaConfirm && !!waNumber(s.phone),
+      newUpiOnly: s.onlineNewUpiOnly && !!(s.upiId || s.qrImageId), newMax: Number(s.onlineNewMax),
       mealSlots: slots.length ? slots : ["Breakfast", "Lunch", "Evening Snacks", "Dinner"],
       primary: s.primaryColor, accent: s.accentColor, hasLogo: !!s.logoImageId,
     },
@@ -70,4 +73,37 @@ export function upiForOnline(s: { upiId: string; name: string; qrImageId: number
   if (s.upiId) return { kind: "upi" as const, text: `upi://pay?pa=${encodeURIComponent(s.upiId)}&pn=${encodeURIComponent(s.name)}&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(ref)}` };
   if (s.qrImageId) return { kind: "image" as const, imageId: s.qrImageId };
   return null;
+}
+
+// ---------- stopping fake orders (free, no SMS) ----------
+export const DEVICE_COOKIE = "ao_dev";
+/** Hash of the customer's browser id, per restaurant - used for "My orders" (never shown) */
+export function deviceHash(tenantId: number, dev: string | undefined) {
+  if (!dev || !/^[\w-]{16,64}$/.test(dev)) return "";
+  return crypto.createHash("sha256").update(`${tenantId}:${dev}`).digest("hex").slice(0, 40);
+}
+export const newDeviceId = () => crypto.randomBytes(18).toString("base64url");
+
+/** Restaurant phone as a wa.me number (India: 91 + 10 digits) or "" */
+export function waNumber(phone: string | null | undefined) {
+  const d = String(phone ?? "").replace(/\D/g, "");
+  if (d.length === 10) return `91${d}`;
+  if (d.length === 12 && d.startsWith("91")) return d;
+  if (d.length === 11 && d.startsWith("0")) return `91${d.slice(1)}`;
+  return d.length >= 11 && d.length <= 15 ? d : "";
+}
+export function waConfirmLink(restaurantPhone: string | null | undefined, o: { id: number; verifyCode: string; name: string }) {
+  const n = waNumber(restaurantPhone);
+  if (!n || !o.verifyCode) return "";
+  return `https://wa.me/${n}?text=${encodeURIComponent(`Hi, this is ${o.name}. Confirming my online order #${o.id}. Code: ${o.verifyCode}`)}`;
+}
+
+/** Bills (not cancelled) per customer - to show "new number" vs "regular" */
+export async function billCounts(tenantId: number, customerIds: number[]) {
+  const ids = [...new Set(customerIds.filter(Boolean))];
+  if (!ids.length) return new Map<number, number>();
+  const rows = await db.select({ c: schema.orders.customerId, n: sql<number>`count(*)` }).from(schema.orders)
+    .where(and(eq(schema.orders.tenantId, tenantId), inArray(schema.orders.customerId, ids), ne(schema.orders.status, "CANCELLED")))
+    .groupBy(schema.orders.customerId);
+  return new Map(rows.map((r) => [r.c!, Number(r.n)]));
 }

@@ -62,6 +62,7 @@ export function Storefront({ code, config, dishes, today }: { code: string; conf
       <h1 className="font-display text-2xl font-bold">{config.name}</h1>
       {config.tagline && <p className="text-sm opacity-90">{config.tagline}</p>}
       {config.note && <p className="mx-auto mt-2 max-w-md rounded-xl bg-white/15 px-3 py-1.5 text-sm">{config.note}</p>}
+      <a href={`/${code}/order/my`} className="mt-3 inline-block rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">🧾 My orders</a>
     </header>
   );
 
@@ -131,6 +132,9 @@ export function Storefront({ code, config, dishes, today }: { code: string; conf
               <span>Pay {kind === "DELIVERY" ? "on delivery" : "at pickup"}<span className="block text-xs text-muted">Cash or UPI when you get your food</span></span></label>
             {config.upi && <label className="flex items-start gap-2 text-sm"><input type="radio" className="mt-1 accent-[var(--color-brand)]" checked={pay === "UPI"} onChange={() => setPay("UPI")} />
               <span>Pay now by UPI<span className="block text-xs text-muted">You&apos;ll see the QR after placing the order</span></span></label>}
+            {config.newUpiOnly && <p className="text-xs text-amber-800">First order with us? Please choose &quot;Pay now by UPI&quot;.</p>}
+            {config.newMax > 0 && <p className="text-xs text-muted">First orders from a new number can be up to ₹{config.newMax}.</p>}
+            {config.waConfirm && <p className="text-xs text-muted">After ordering, you&apos;ll confirm it on WhatsApp with one tap.</p>}
           </section>
 
           <section className="card space-y-1 text-sm">

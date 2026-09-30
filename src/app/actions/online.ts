@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
-import { loadStorefront, priceCart, type OnlineLine } from "@/lib/online";
+import { cookies } from "next/headers";
+import { DEVICE_COOKIE, billCounts, deviceHash, loadStorefront, newDeviceId, priceCart, type OnlineLine } from "@/lib/online";
 import { saveOrder } from "@/lib/orders";
 import { lookupValues } from "@/lib/options";
 import { addDays, round2, todayIST } from "@/lib/format";
@@ -60,29 +61,42 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
       .where(and(eq(schema.onlineOrders.tenantId, tenant.id), eq(schema.onlineOrders.phone, p10), eq(schema.onlineOrders.status, "NEW")));
     if (Number(n) >= 3) throw new Error("You already have orders waiting for the restaurant to confirm. Please wait, or call them.");
 
-    const priced = await priceCart(tenant.id, v.items ?? [], { delivery: kind === "DELIVERY" });
-    if (priced.itemsTotal < Number(config.minOrder || 0)) throw new Error(`Minimum order is ₹${config.minOrder}. Please add a little more.`);
-
-    // find or create the customer by mobile number
+    // find the customer by mobile number (blocked numbers stop here)
     let cust = await db.query.customers.findFirst({
       where: and(eq(schema.customers.tenantId, tenant.id), sql`right(regexp_replace(${schema.customers.phone}, '\\D', '', 'g'), 10) = ${p10}`),
     });
+    if (cust?.onlineBlocked) throw new Error("Sorry, we can't take this order online. Please call the restaurant.");
+    const isNew = !cust || !(await billCounts(tenant.id, [cust.id])).get(cust.id);
+
+    const priced = await priceCart(tenant.id, v.items ?? [], { delivery: kind === "DELIVERY" });
+    if (priced.itemsTotal < Number(config.minOrder || 0)) throw new Error(`Minimum order is ₹${config.minOrder}. Please add a little more.`);
+    if (isNew && config.newUpiOnly && payMethod !== "UPI") throw new Error("For your first order with us, please choose \"Pay now by UPI\".");
+    if (isNew && config.newMax > 0 && priced.total > config.newMax) throw new Error(`For a first order the limit is ₹${config.newMax}. Please call the restaurant for bigger orders.`);
+
     if (!cust) {
       [cust] = await db.insert(schema.customers).values({ tenantId: tenant.id, name, phone: p10, flat, area, notes: "Added from online order" }).returning();
     } else if (kind === "DELIVERY" && (!cust.flat || !cust.area)) {
       await db.update(schema.customers).set({ flat: cust.flat || flat, area: cust.area || area }).where(eq(schema.customers.id, cust.id));
     }
+    // this browser's id, so the customer can see "My orders" without logging in
+    const jar = await cookies();
+    let dev = jar.get(DEVICE_COOKIE)?.value;
+    if (!deviceHash(tenant.id, dev)) {
+      dev = newDeviceId();
+      jar.set(DEVICE_COOKIE, dev, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 400 * 86400 });
+    }
+    const verifyCode = s.onlineWaConfirm ? String(crypto.randomInt(1000, 10000)) : "";
     const token = crypto.randomBytes(18).toString("base64url");
     await db.insert(schema.onlineOrders).values({
       tenantId: tenant.id, token, customerId: cust.id, name, phone: p10,
       address: kind === "DELIVERY" ? [flat, area].filter(Boolean).join(", ") : "",
       kind, isPreorder: !!v.isPreorder, date, mealSlot, slotTime,
       items: JSON.stringify(priced.lines), estTotal: priced.total, payMethod, notes: clean(v.notes, 300), ip,
+      verifyCode, device: deviceHash(tenant.id, dev),
     });
     await recordFailure([{ key: keys[0], limit: 10 }, { key: keys[1], limit: 5 }]); // counts orders, not failures
     revalidatePath("/online-orders"); revalidatePath("/");
     dest = `/${tenant.code}/order/${token}`;
-    void s;
   } catch (e) { return fail(e); }
   redirect(dest);
 }
@@ -144,14 +158,15 @@ export async function acceptOnlineOrderAction(id: number, upiReceived: boolean):
   } catch (e) { return fail(e); }
 }
 
-export async function rejectOnlineOrderAction(id: number, reason: string): Promise<R> {
+export async function rejectOnlineOrderAction(id: number, reason: string, block = false): Promise<R> {
   try {
     const u = await requireAction("onlineOrders");
     const why = clean(reason, 200);
     if (why.length < 3) throw new Error("Write a short reason - the customer sees it.");
     const [r] = await db.update(schema.onlineOrders).set({ status: "REJECTED", rejectReason: why, decidedById: u.id, decidedAt: new Date() })
-      .where(and(eq(schema.onlineOrders.id, id), eq(schema.onlineOrders.tenantId, u.tenantId), eq(schema.onlineOrders.status, "NEW"))).returning({ id: schema.onlineOrders.id });
+      .where(and(eq(schema.onlineOrders.id, id), eq(schema.onlineOrders.tenantId, u.tenantId), eq(schema.onlineOrders.status, "NEW"))).returning({ id: schema.onlineOrders.id, customerId: schema.onlineOrders.customerId });
     if (!r) throw new Error("This order was already handled.");
+    if (block && r.customerId) await db.update(schema.customers).set({ onlineBlocked: true }).where(and(eq(schema.customers.id, r.customerId), eq(schema.customers.tenantId, u.tenantId)));
     revalidatePath("/online-orders"); revalidatePath("/");
     return { ok: true };
   } catch (e) { return fail(e); }
@@ -162,10 +177,13 @@ export async function saveOnlineSettingsAction(v: Record<string, string>): Promi
     const u = await requireAction("settings");
     const min = Number(v.onlineMinOrder || 0);
     if (!Number.isFinite(min) || min < 0) throw new Error("Minimum order must be a number.");
+    const newMax = Number(v.onlineNewMax || 0);
+    if (!Number.isFinite(newMax) || newMax < 0) throw new Error("First-order limit must be a number.");
     await db.update(schema.settings).set({
       onlineOpen: v.onlineOpen === "true", onlineClosedMsg: clean(v.onlineClosedMsg, 200), onlineNote: clean(v.onlineNote, 300),
       onlineDelivery: v.onlineDelivery === "true", onlineTakeaway: v.onlineTakeaway === "true", onlinePreorder: v.onlinePreorder === "true",
-      onlineMinOrder: round2(min), onlineDeliveryType: clean(v.onlineDeliveryType, 40) || "Delivery", onlineTakeawayType: clean(v.onlineTakeawayType, 40) || "Takeaway",
+      onlineMinOrder: round2(min), onlineWaConfirm: v.onlineWaConfirm === "true", onlineNewUpiOnly: v.onlineNewUpiOnly === "true", onlineNewMax: round2(newMax),
+      onlineDeliveryType: clean(v.onlineDeliveryType, 40) || "Delivery", onlineTakeawayType: clean(v.onlineTakeawayType, 40) || "Takeaway",
     }).where(eq(schema.settings.tenantId, u.tenantId));
     revalidatePath("/online-orders");
     return { ok: true };
@@ -177,6 +195,28 @@ export async function setOnlineOpenAction(open: boolean): Promise<R> {
   try {
     const u = await requireAction("onlineOrders");
     await db.update(schema.settings).set({ onlineOpen: open }).where(eq(schema.settings.tenantId, u.tenantId));
+    revalidatePath("/online-orders");
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Staff saw the customer's WhatsApp message with the code */
+export async function setWaConfirmedAction(id: number, on: boolean): Promise<R> {
+  try {
+    const u = await requireAction("onlineOrders");
+    await db.update(schema.onlineOrders).set({ waConfirmed: on }).where(and(eq(schema.onlineOrders.id, id), eq(schema.onlineOrders.tenantId, u.tenantId)));
+    revalidatePath("/online-orders");
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Block / unblock a customer's number from online ordering */
+export async function setBlockedAction(customerId: number, blocked: boolean): Promise<R> {
+  try {
+    const u = await requireAction("onlineOrders");
+    const [r] = await db.update(schema.customers).set({ onlineBlocked: blocked })
+      .where(and(eq(schema.customers.id, customerId), eq(schema.customers.tenantId, u.tenantId))).returning({ id: schema.customers.id });
+    if (!r) throw new Error("Customer not found.");
     revalidatePath("/online-orders");
     return { ok: true };
   } catch (e) { return fail(e); }
