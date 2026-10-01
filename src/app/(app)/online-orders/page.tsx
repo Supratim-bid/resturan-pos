@@ -73,6 +73,7 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
                     ? <Badge tone="green">✓ Regular · {counts.get(o.customerId!)} bills</Badge>
                     : <Badge tone="amber">🆕 New number</Badge>}
                 {Number(o.paidOnline) > 0 ? <Badge tone="green">💳 Paid online {inr(Number(o.paidOnline))}{o.payLinkProvider ? ` · ${GATEWAY_LABEL[o.payLinkProvider as Gateway] ?? o.payLinkProvider}` : ""}</Badge>
+                  : o.payMethod === "UPI" && o.payLinkStatus.startsWith("error:") ? <Badge tone="red">💳 Payment page failed</Badge>
                   : o.payMethod === "UPI" && o.payLinkId ? <Badge tone="amber">💳 Online payment not done yet</Badge>
                   : o.payMethod === "UPI" ? <Badge tone={o.payProofImageId ? "green" : "gray"}>{o.payProofImageId ? "UPI · 📸 screenshot" : "UPI · no screenshot"}</Badge> : <Badge tone="gray">Pay on delivery/pickup</Badge>}
               </span>}>
@@ -93,6 +94,7 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
                     <span><b>Payment screenshot</b><br /><span className="text-muted">Tap to open. Match the amount in your UPI app before accepting.</span></span>
                   </a>
                 )}
+                {o.status === "NEW" && Number(o.paidOnline) <= 0 && o.payLinkStatus.startsWith("error:") && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">The customer couldn&apos;t open the online payment page. Gateway says: <b>{o.payLinkStatus.slice(6).trim()}</b></p>}
                 {o.status === "NEW" && <div className="mt-3 border-t border-line pt-3"><OnlineOrderActions id={o.id} payMethod={o.payMethod} canBlock={!!o.customerId} paidOnline={Number(o.paidOnline)} /></div>}
                 {o.status === "REJECTED" && o.customerId && <div className="mt-2"><BlockButton customerId={o.customerId} blocked={blockedIds.has(o.customerId)} /></div>}
                 {o.status === "ACCEPTING" && <p className="mt-2 text-sm text-muted">Being accepted…</p>}

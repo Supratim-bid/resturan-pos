@@ -156,11 +156,22 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
   } else if (g === "instamojo") {
     if (r.amount < 9) throw new Error("Instamojo: the smallest payment it allows is ₹9.");
     const call = await instamojo(s);
-    const q = await call("/payment_requests/", {
-      amount: r.amount.toFixed(2), purpose: r.purpose.slice(0, 30), allow_repeated_payments: "false", send_email: "false", send_sms: "false",
-      ...(r.customerName ? { buyer_name: r.customerName.slice(0, 100) } : {}), ...(phone.length === 10 ? { phone } : {}),
-      ...(https ? { webhook: `${r.origin}/api/pay/instamojo` } : {}), ...(ret ? { redirect_url: ret } : {}),
+    const req = (who: boolean, back: boolean) => ({
+      amount: r.amount.toFixed(2), purpose: r.purpose.replace(/[^\w\s-]/g, "").slice(0, 30), allow_repeated_payments: "false", send_email: "false", send_sms: "false",
+      ...(who && r.customerName ? { buyer_name: r.customerName.replace(/[^\w\s.]/g, "").slice(0, 100) } : {}), ...(who && /^[6-9]\d{9}$/.test(phone) ? { phone } : {}),
+      ...(https ? { webhook: `${r.origin}/api/pay/instamojo` } : {}), ...(back && ret ? { redirect_url: ret } : {}),
     });
+    // Instamojo refuses some customer names / numbers and return addresses: try again with less, rather than fail the order
+    let q: Record<string, any> | null = null; let first = ""; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const [who, back] of [[true, true], [false, true], [false, false]] as const) {
+      try { q = await call("/payment_requests/", req(who, back)); break; }
+      catch (e) {
+        const m = String((e as Error).message);
+        if (/token|credential|client|unauthor|authentic/i.test(m)) throw e;
+        first ||= m; console.error("instamojo request refused, retrying with less:", m);
+      }
+    }
+    if (!q) throw new Error(first);
     id = q.id; url = q.longurl; status = q.status || "Pending";
   } else {
     const linkId = `t${tenantId}${r.ref}-${Date.now().toString(36)}`.replace(/[^\w-]/g, "").slice(0, 50);
@@ -331,8 +342,12 @@ export async function createOnlineOrderLink(tenantId: number, onlineOrderId: num
   if (due <= 0.5) throw new Error("Already paid.");
   if (o.payLinkId && o.payLinkProvider === g && isOpen(g, o.payLinkStatus)) return o.payLinkUrl;
   const link = await createGatewayLink(tenantId, {
-    amount: due, purpose: `${s.name} - Online order ${o.id}`, ref: `w${o.id}`, customerName: o.name, phone: o.phone,
+    amount: due, purpose: `${s.name} Online order ${o.id}`, ref: `w${o.id}`, customerName: o.name, phone: o.phone,
     origin, returnUrl: /^https?:\/\//.test(origin) ? `${origin}/${code}/order/${o.token}?paid=1` : "", notes: { online_order_id: String(o.id) },
+  }).catch(async (e) => {
+    // keep the gateway's reason so staff can see why the customer couldn't pay online
+    await db.update(schema.onlineOrders).set({ payLinkStatus: `error: ${String((e as Error).message).slice(0, 300)}` }).where(eq(schema.onlineOrders.id, o.id));
+    throw e;
   });
   await db.update(schema.onlineOrders).set({ payLinkId: link.id, payLinkUrl: link.url, payLinkStatus: link.status, payLinkProvider: link.provider })
     .where(eq(schema.onlineOrders.id, o.id));
