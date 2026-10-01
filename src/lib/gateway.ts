@@ -52,8 +52,14 @@ async function http(name: string, url: string, init: RequestInit) {
   let j: Record<string, unknown> = {};
   try { j = text ? JSON.parse(text) : {}; } catch { /* not json */ }
   if (!r.ok) {
-    const e = j as { error?: { description?: string } | string; message?: string; error_description?: string };
-    const why = typeof e.error === "object" ? e.error?.description : e.message || e.error_description || (typeof e.error === "string" ? e.error : "");
+    const e = j as { error?: { description?: string } | string; message?: unknown; error_description?: string };
+    // field errors like {"amount":["Ensure this value is greater than or equal to 9."]} or {"message":{"phone":["..."]}}
+    const fields = (o: unknown): string => o && typeof o === "object" ? Object.entries(o as Record<string, unknown>)
+      .filter(([k]) => !["success", "status"].includes(k))
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(" ") : typeof v === "object" ? fields(v) : String(v)}`).join("; ") : "";
+    const why = typeof e.error === "object" ? e.error?.description
+      : typeof e.message === "string" ? e.message
+      : e.error_description || (typeof e.error === "string" ? e.error : "") || fields(e.message) || fields(j);
     throw new Error(`${name}: ${why || `error ${r.status}`}`);
   }
   return j as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -148,6 +154,7 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
     });
     id = link.id; url = link.short_url; status = link.status;
   } else if (g === "instamojo") {
+    if (r.amount < 9) throw new Error("Instamojo: the smallest payment it allows is ₹9.");
     const call = await instamojo(s);
     const q = await call("/payment_requests/", {
       amount: r.amount.toFixed(2), purpose: r.purpose.slice(0, 30), allow_repeated_payments: "false", send_email: "false", send_sms: "false",
@@ -228,9 +235,9 @@ export async function testGatewayLink(tenantId: number, origin: string) {
   const s = await settingsOf(tenantId);
   const g = activeGateway(s);
   if (!g) throw new Error("Choose a gateway and save its keys first.");
-  const link = await createGatewayLink(tenantId, { amount: 1, purpose: `${s.name} - connection test`, ref: "test", origin, returnUrl: /^https:\/\//.test(origin) ? `${origin}/settings` : "", notes: { test: "1" } });
+  const link = await createGatewayLink(tenantId, { amount: g === "instamojo" ? 10 : 1, purpose: `${s.name} - connection test`, ref: "test", origin, returnUrl: /^https:\/\//.test(origin) ? `${origin}/settings` : "", notes: { test: "1" } });
   const mode = g === "cashfree" && link.url.includes("/api/pay/checkout/") ? " using Cashfree Checkout (Payment Links API isn't enabled on your account - that's fine, checkout does the same job)" : "";
-  return `${GATEWAY_LABEL[g]} works${mode}${(g === "cashfree" ? s.cashfreeTest : g === "instamojo" ? s.instamojoTest : false) ? " (TEST mode - switch it off for real payments)" : ""}. Test link for ₹1: ${link.url}`;
+  return `${GATEWAY_LABEL[g]} works${mode}${(g === "cashfree" ? s.cashfreeTest : g === "instamojo" ? s.instamojoTest : false) ? " (TEST mode - switch it off for real payments)" : ""}. Test link for ₹${g === "instamojo" ? 10 : 1}: ${link.url}`;
 }
 
 /** Ask the gateway how much was paid on a link */

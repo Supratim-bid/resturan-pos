@@ -306,7 +306,7 @@ export function PaymentSettings({ initial, saved, origin, gatewaysAllowed = true
           setMsg(r.ok ? { ok: true, t: r.data } : { ok: false, t: `Test failed - ${r.error}` });
         })}>Test connection</button>}
       </div>
-      <p className="mt-1 text-[11px] text-muted">Save first, then Test connection. It makes a ₹1 link to check the keys (nothing is charged).</p>
+      <p className="mt-1 text-[11px] text-muted">Save first, then Test connection. It makes a small test link (₹1, or ₹10 on Instamojo) to check the keys - nothing is charged unless someone pays it.</p>
     </form>
   );
 }
