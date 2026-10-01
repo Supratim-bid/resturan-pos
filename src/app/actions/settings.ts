@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
 import { ALL_PERMS, type PermKey, type Role } from "@/lib/permissions";
-import { sealSecret } from "@/lib/gateway";
+import { sealSecret, testGatewayLink } from "@/lib/gateway";
+import { headers } from "next/headers";
 import { featureInfo, tenantWithPlan } from "@/lib/plans";
 
 type R = { ok: true } | { ok: false; error: string };
@@ -182,4 +183,15 @@ export async function savePoliciesAction(v: { policyTerms: string; policyRefund:
     revalidatePath("/settings");
     return { ok: true };
   } catch (e) { return fail(e); }
+}
+
+/** Settings → Online payments → Test connection */
+export async function testGatewayAction(): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
+  try {
+    const u = await requireAction("settings");
+    if (!u.features.includes("paymentGateways")) throw new Error("Payment gateways are not in your plan.");
+    const h = await headers();
+    const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? ""}`;
+    return { ok: true, data: await testGatewayLink(u.tenantId, origin) };
+  } catch (e) { return { ok: false, error: String((e as Error).message) }; }
 }

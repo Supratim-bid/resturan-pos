@@ -170,7 +170,8 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
   // amount + UPI QR frozen while the QR is showing (the bill page updates underneath when it's paid)
   const [due, setDue] = useState(dueNow);
   const [snap, setSnap] = useState({ upiText, qrImage });
-  const [tab, setTab] = useState<"link" | "upi">(gateway ? "link" : "upi");
+  // with a gateway only its QR is shown (paid is detected by itself); our own UPI QR only when there's no gateway
+  const tab: "link" | "upi" = gateway ? "link" : "upi";
   const [img, setImg] = useState("");
   const [url, setUrl] = useState("");
   const [state, setState] = useState<"" | "loading" | "waiting" | "paid" | "error">("");
@@ -222,12 +223,7 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
               <b>Bill {billNo}</b>
               <button type="button" className="btn-ghost btn-sm" onClick={() => { setOpen(false); setState(""); router.refresh(); }}>Close</button>
             </div>
-            {gateway && (upiText || qrImage) && (
-              <div className="inline-flex overflow-hidden rounded-full border border-line text-xs font-semibold">
-                <button type="button" className={`px-3 py-1.5 ${tab === "link" ? "bg-brand text-white" : ""}`} onClick={() => setTab("link")}>{gateway} (auto-check)</button>
-                <button type="button" className={`px-3 py-1.5 ${tab === "upi" ? "bg-brand text-white" : ""}`} onClick={() => setTab("upi")}>Our UPI QR</button>
-              </div>
-            )}
+            {gateway && <div className="text-xs font-semibold text-muted">Pay through {gateway} · checked automatically</div>}
             <div className="text-3xl font-bold tabular-nums">₹{due}</div>
             {state === "paid" ? (
               <div className="rounded-xl bg-emerald-50 py-10 text-emerald-800"><div className="text-5xl">✓</div><div className="mt-2 text-lg font-bold">Paid - recorded on the bill</div></div>

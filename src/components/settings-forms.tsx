@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createUserAction, saveSettingsAction, savePaymentSettingsAction, savePoliciesAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
+import { createUserAction, saveSettingsAction, savePaymentSettingsAction, testGatewayAction, savePoliciesAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
 import { Modal } from "./crud";
 import { MODULES, POWERS, ROLE_DEFAULTS, ROLE_LABEL, type PermKey, type Role } from "@/lib/permissions";
 import { FEATURE_TABS, FEATURES, type FeatureKey } from "@/lib/features";
@@ -299,7 +299,14 @@ export function PaymentSettings({ initial, saved, origin, gatewaysAllowed = true
         )}
       </div>
       {msg && <p className={`mt-3 rounded-lg px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>{msg.t}</p>}
-      <button className="btn-primary mt-4" disabled={pending}>{pending ? "Saving…" : "Save payment settings"}</button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button className="btn-primary" disabled={pending}>{pending ? "Saving…" : "Save payment settings"}</button>
+        {v.payGateway && <button type="button" className="btn-ghost" disabled={pending} onClick={() => start(async () => {
+          setMsg(null); const r = await testGatewayAction();
+          setMsg(r.ok ? { ok: true, t: r.data } : { ok: false, t: `Test failed - ${r.error}` });
+        })}>Test connection</button>}
+      </div>
+      <p className="mt-1 text-[11px] text-muted">Save first, then Test connection. It makes a ₹1 link to check the keys (nothing is charged).</p>
     </form>
   );
 }

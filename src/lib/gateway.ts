@@ -161,17 +161,36 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
     const meta: Record<string, string> = {};
     if (https) meta.notify_url = `${r.origin}/api/pay/cashfree`;
     if (ret) meta.return_url = ret;
-    const q = await cashfree(s)("/links", {
-      link_id: linkId, link_amount: r.amount, link_currency: "INR", link_purpose: r.purpose.slice(0, 500),
-      customer_details: { customer_phone: phone.length === 10 ? phone : own.length === 10 ? own : "9999999999", ...(r.customerName ? { customer_name: r.customerName } : {}) },
+    const body = (withMeta: boolean) => ({
+      link_id: withMeta ? linkId : `${linkId}r`.slice(0, 50), link_amount: r.amount, link_currency: "INR", link_purpose: r.purpose.slice(0, 500),
+      customer_details: { customer_phone: phone.length === 10 ? phone : own.length === 10 ? own : "9999999999", ...(r.customerName ? { customer_name: r.customerName.slice(0, 100) } : {}) },
       link_partial_payments: false, link_notify: { send_sms: false, send_email: false },
       link_notes: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
-      ...(Object.keys(meta).length ? { link_meta: meta } : {}),
+      ...(withMeta && Object.keys(meta).length ? { link_meta: meta } : {}),
     });
+    let q: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    try {
+      q = await cashfree(s)("/links", body(true));
+    } catch (e) {
+      // a return / notify address Cashfree won't accept (e.g. domain not whitelisted yet): make the link without them -
+      // the customer's order page still checks the payment by itself
+      if (!Object.keys(meta).length || /authentication|client|secret|credential/i.test(String((e as Error).message))) throw e;
+      console.error("cashfree link with return url failed, retrying without:", (e as Error).message);
+      q = await cashfree(s)("/links", body(false));
+    }
     id = q.link_id || linkId; url = q.link_url; status = q.link_status || "ACTIVE";
   }
   if (!id || !url) throw new Error(`${GATEWAY_LABEL[g]}: no link came back. Check the keys.`);
   return { provider: g, id, url, status };
+}
+
+/** Owner's "Test connection": make a ₹1 link to prove the keys and account work (nothing is charged unless someone pays it) */
+export async function testGatewayLink(tenantId: number, origin: string) {
+  const s = await settingsOf(tenantId);
+  const g = activeGateway(s);
+  if (!g) throw new Error("Choose a gateway and save its keys first.");
+  const link = await createGatewayLink(tenantId, { amount: 1, purpose: `${s.name} - connection test`, ref: "test", origin, returnUrl: /^https:\/\//.test(origin) ? `${origin}/settings` : "", notes: { test: "1" } });
+  return `${GATEWAY_LABEL[g]} works${(g === "cashfree" ? s.cashfreeTest : g === "instamojo" ? s.instamojoTest : false) ? " (TEST mode - switch it off for real payments)" : ""}. Test link for ₹1: ${link.url}`;
 }
 
 /** Ask the gateway how much was paid on a link */

@@ -39,8 +39,9 @@ export default async function OrderStatus({ params, searchParams }: { params: Pr
   const gateway = s ? activeGateway(s) : "";
   const due = Math.max(0, Math.round((total - paid) * 100) / 100);
   const showUpi = o.payMethod === "UPI" && o.status !== "REJECTED" && due > 0.5 && s;
-  const payOnline = showUpi && !!gateway;
-  const upi = showUpi ? upiForOnline(s!, due, `Online order ${o.id}`) : null;
+  const payOnline = !!showUpi && !!gateway;
+  // with a payment gateway the customer pays only through it; our own UPI QR is for restaurants without one
+  const upi = showUpi && !payOnline ? upiForOnline(s!, due, `Online order ${o.id}`) : null;
   const qr = upi?.kind === "upi" ? await qrDataUrl(upi.text, 260) : upi?.kind === "image" ? `/img/${upi.imageId}` : null;
   const phones = s ? restaurantPhones(s) : [];
   const state = o.status === "REJECTED" ? { icon: "❌", title: "Order not accepted", tone: "bg-red-50 text-red-800" }
@@ -75,7 +76,7 @@ export default async function OrderStatus({ params, searchParams }: { params: Pr
           <section className="card space-y-2 text-center">
             <h2 className="font-bold">Pay {inr(due)}</h2>
             <p className="text-sm text-muted">UPI, cards, net banking or wallets - secure payment page.</p>
-            {sp.payerr && <p className="text-sm text-red-700">Couldn&apos;t open the payment page. Please try again, or pay by UPI QR below.</p>}
+            {sp.payerr && <p className="text-sm text-red-700">Couldn&apos;t open the payment page. Please try again in a moment, or call the restaurant.</p>}
             {sp.paid && !sp.payerr && <p className="text-sm text-amber-800">We haven&apos;t received the payment yet. If money was deducted, it will show here in a minute.</p>}
             <a href={`/${code}/order/${token}/pay`} className="btn-primary inline-block text-lg">💳 Pay {inr(due)} now</a>
           </section>
@@ -83,18 +84,11 @@ export default async function OrderStatus({ params, searchParams }: { params: Pr
 
         {qr && (
           <section className="card space-y-2 text-center">
-            {payOnline ? <details><summary className="cursor-pointer text-sm font-semibold">Or pay by scanning a UPI QR</summary><div className="mt-2 space-y-2">
-              <img src={qr} alt="UPI QR code" className="mx-auto h-56 w-56 object-contain" />
-              {upi?.kind === "upi" && <a href={upi.text} className="btn-ghost inline-block">Open UPI app</a>}
-              {s?.upiId && <p className="text-xs text-muted">UPI ID: {s.upiId}</p>}
-              {o.status === "NEW" && <PaymentProof code={code} token={token} has={!!o.payProofImageId} />}
-            </div></details> : <>
             <h2 className="font-bold">Pay {inr(due)} by UPI</h2>
             <img src={qr} alt="UPI QR code" className="mx-auto h-56 w-56 object-contain" />
             {upi?.kind === "upi" && <a href={upi.text} className="btn-primary inline-block">Open UPI app</a>}
             {s?.upiId && <p className="text-xs text-muted">UPI ID: {s.upiId}</p>}
             {o.status === "NEW" && <PaymentProof code={code} token={token} has={!!o.payProofImageId} />}
-            </>}
           </section>
         )}
 
