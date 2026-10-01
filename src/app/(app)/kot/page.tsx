@@ -19,6 +19,7 @@ export default async function KotScreen({ searchParams }: { searchParams: Promis
   const now = todayIST();
   const today = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : now;
   const isToday = today === now;
+  const canPrint = u.features.includes("kotPrint");
   const qs = (k: Record<string, string>) => { const p = new URLSearchParams({ ...(today !== now ? { date: today } : {}), ...(show === "done" ? { show: "done" } : {}), ...k }); for (const [a, b] of [...p]) if (!b) p.delete(a); const x = p.toString(); return `/kot${x ? `?${x}` : ""}`; };
   const [active, done] = await Promise.all([
     kotsForDay(u.tenantId, today, ["NEW", "PREPARING", "READY"]),
@@ -107,7 +108,7 @@ export default async function KotScreen({ searchParams }: { searchParams: Promis
                 {o.notes && <div className="rounded bg-cream px-2 py-1 text-sm">📝 {o.notes}</div>}
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
                   {cancelled ? <DismissButton id={o.id} /> : <KotButtons id={o.id} status={o.kotStatus} />}
-                  <Link href={`/kot/${o.id}?back=kot`} className="text-sm font-semibold text-brand underline">Print</Link>
+                  {canPrint && <Link href={`/kot/${o.id}?back=kot`} className="text-sm font-semibold text-brand underline">Print</Link>}
                 </div>
               </div>
             );

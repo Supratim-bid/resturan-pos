@@ -19,7 +19,7 @@ export default async function NewOrder({ searchParams }: { searchParams: Promise
       today={today}
       canPickDate={canEditAnyOrder(u)}
       allowPreorder={u.features.includes("preorders")}
-      kotFeature={u.features.includes("kot")}
+      kotScreen={u.features.includes("kot")} kotPrint={u.features.includes("kotPrint")}
       orderLabel={d.nextBill}
       initial={{ date: preDate, isPreorder: pre, mealSlot: pre ? sp.slot ?? "" : "", slotTime: "", customerId: null, orderType: d.orderTypes[0] ?? "Dine-in", tableNo: "", notes: "", items: [], orderDiscount: 0, deliveryCharge: 0, packingCharge: 0, packaging: [] }}
     />

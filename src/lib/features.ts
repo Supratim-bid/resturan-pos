@@ -17,7 +17,8 @@ export type FeatureGroup = keyof typeof FEATURE_GROUPS;
 type F = { label: string; help: string; group: FeatureGroup; comingSoon?: boolean };
 export const FEATURES = {
   preorders: { label: "Pre-orders", group: "orders", help: "Book orders for a later date and meal (breakfast / lunch / dinner), with a kitchen cook list." },
-  kot: { label: "KOT (kitchen tickets)", group: "orders", help: "Kitchen screen and KOT slips (no prices); bills can send a KOT to the kitchen." },
+  kot: { label: "Kitchen screen (KOT)", group: "orders", help: "Live kitchen screen: new tickets ring, cook / ready / served, dish totals. Bills can send a KOT to the screen." },
+  kotPrint: { label: "KOT print", group: "orders", help: "Print KOT slips (dishes and notes, no prices) - with the bill or on their own (\"Save + print KOT\")." },
   onlineOrders: { label: "Online ordering", group: "online", help: "Customers order from their phone at /<code>/order (delivery, pickup, pre-order); staff accept or reject." },
   paymentGateways: { label: "Payment links & gateways", group: "online", help: "Razorpay, Instamojo or Cashfree payment links on bills - marked paid automatically." },
   aggregators: { label: "Swiggy / Zomato orders", group: "online", help: "Receive Swiggy and Zomato orders here (through an integration partner).", comingSoon: true },
@@ -49,9 +50,9 @@ export const DEFAULT_PLANS = [
   { key: "starter", name: "Starter", price: 499, maxUsers: 2, sortOrder: 1, description: "Billing, customers, menu and expenses for a small kitchen",
     features: ["preorders", "reminders"] },
   { key: "growth", name: "Growth", price: 999, maxUsers: 5, sortOrder: 2, description: "Adds online ordering, KOT, recipes & stock, staff and reports",
-    features: ["preorders", "reminders", "onlineOrders", "kot", "recipes", "stock", "packaging", "vendors", "staff", "reports"] },
+    features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports"] },
   { key: "pro", name: "Pro", price: 1999, maxUsers: 15, sortOrder: 3, description: "Everything: Cash & Bank, payment gateways, Swiggy/Zomato payouts",
-    features: ["preorders", "reminders", "onlineOrders", "kot", "recipes", "stock", "packaging", "vendors", "staff", "reports", "money", "settlements", "paymentGateways", "aggregators", "deliveryPartners"] },
+    features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports", "money", "settlements", "paymentGateways", "aggregators", "deliveryPartners"] },
 ] as const;
 
 /** What a restaurant is allowed to use: its plan + add-ons − removed (coming-soon features never count) */
@@ -64,3 +65,8 @@ export function allowedFeatures(t: { features?: string[] | null; featuresRemoved
 export function activeFeatures(t: { features?: string[] | null; featuresRemoved?: string[] | null; featuresOff?: string[] | null }, planFeatures: string[] | null | undefined) {
   return allowedFeatures(t, planFeatures).filter((f) => !(t.featuresOff ?? []).includes(f));
 }
+
+/** KOT: the kitchen screen and KOT print are separate features; either one gives bills a KOT number */
+export const kotScreenOn = (features: string[]) => features.includes("kot");
+export const kotPrintOn = (features: string[]) => features.includes("kotPrint");
+export const kotAnyOn = (features: string[]) => kotScreenOn(features) || kotPrintOn(features);

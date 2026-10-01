@@ -144,10 +144,10 @@ function CustomerPicker({ customers, value, onChange, onAdded }: {
 
 export function Pos({
   dishes, customers: initialCustomers, orderTypes, payModes, gstRate, defaults, initial, today, canPickDate, orderLabel, packaging = [], mealSlots = [], allowPreorder = false, scanner = false,
-  kotFeature = false, kotNo = null,
+  kotScreen = false, kotPrint = false, kotNo = null,
 }: {
   dishes: PosDish[]; customers: PosCustomer[]; orderTypes: string[]; payModes: string[]; gstRate: number; packaging?: PosPack[]; mealSlots?: string[]; allowPreorder?: boolean; scanner?: boolean;
-  kotFeature?: boolean; kotNo?: number | null;
+  kotScreen?: boolean; kotPrint?: boolean; kotNo?: number | null;
   defaults: { deliveryCharge: number; packingCharge: number }; initial: PosInitial; today: string; canPickDate: boolean; orderLabel: string;
 }) {
   const router = useRouter();
@@ -270,7 +270,7 @@ export function Pos({
         ...o, items: o.items.map((i) => ({ menuItemId: i.menuItemId, qty: i.qty, discount: i.discount })),
         packaging: packLines.map((p) => ({ packagingId: p.packagingId, qty: p.qty })), chargePackaging: chargePack,
         payNow: amount > 0 ? { amount, mode: payMode } : null,
-        kot: kotFeature && !kotNo && (sendKot || printKot),
+        kot: !kotNo && ((kotScreen && sendKot) || (kotPrint && printKot)),
       });
       if (!r.ok) { setErr(r.error); setCartOpen(true); return; }
       router.push(printKot ? `/kot/${r.data}?print=1` : `/orders/${r.data}?saved=1`);
@@ -382,15 +382,16 @@ export function Pos({
         )}
       </div>
       <div><label className="label">Notes (kitchen / delivery)</label><input className="input" value={o.notes} onChange={(e) => setO({ ...o, notes: e.target.value })} /></div>
-      {kotFeature && (kotNo
-        ? <p className="rounded-lg bg-cream px-3 py-2 text-xs">🍳 KOT #{kotNo} is with the kitchen. If you change dishes or notes it goes back as <b>UPDATED</b>.</p>
-        : <label className="flex items-center gap-2 rounded-lg bg-cream px-3 py-2 text-sm"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={sendKot} onChange={(e) => toggleKot(e.target.checked)} />
-            <span><b>Send KOT to kitchen</b><span className="block text-xs text-muted">{pre ? "Shows on the kitchen screen on the pre-order date" : "Bill + KOT together - the kitchen screen gets it now"}</span></span></label>)}
+      {!!kotNo && (kotScreen || kotPrint) && <p className="rounded-lg bg-cream px-3 py-2 text-xs">🍳 KOT #{kotNo} {kotScreen ? <>is with the kitchen. If you change dishes or notes it goes back as <b>UPDATED</b>.</> : "was made for this bill. Print it again after changing dishes."}</p>}
+      {kotScreen && !kotNo && (
+        <label className="flex items-center gap-2 rounded-lg bg-cream px-3 py-2 text-sm"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={sendKot} onChange={(e) => toggleKot(e.target.checked)} />
+            <span><b>Send KOT to kitchen screen</b><span className="block text-xs text-muted">{pre ? "Shows on the kitchen screen on the pre-order date" : "Bill + KOT together - the kitchen screen gets it now"}</span></span></label>
+      )}
       {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
       <button className="btn-primary w-full !py-3.5 text-base" disabled={pending || !lines.length} onClick={() => save()}>
-        {pending ? "Saving…" : o.id ? `Update ${orderLabel} · ${inr(total)}` : pre ? `Save pre-order · ${inr(total)}` : kotFeature && sendKot ? `Save bill + KOT · ${inr(total)}` : `Save order · ${inr(total)}`}
+        {pending ? "Saving…" : o.id ? `Update ${orderLabel} · ${inr(total)}` : pre ? `Save pre-order · ${inr(total)}` : kotScreen && !kotNo && sendKot ? `Save bill + KOT · ${inr(total)}` : `Save order · ${inr(total)}`}
       </button>
-      {kotFeature && <button type="button" className="btn-gold w-full !py-3" disabled={pending || !lines.length} onClick={() => save(true)}>
+      {kotPrint && <button type="button" className="btn-gold w-full !py-3" disabled={pending || !lines.length} onClick={() => save(true)}>
         {kotNo ? `Save + print KOT #${kotNo}` : "Save + print KOT (bill later)"}
       </button>}
     </div>

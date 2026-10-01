@@ -317,7 +317,7 @@ export function OwnFeatures({ allowed, off: initialOff }: { allowed: string[]; o
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
-  const keys = allowed.filter((k): k is FeatureKey => k in FEATURES);
+  const keys = (Object.keys(FEATURES) as FeatureKey[]).filter((k) => allowed.includes(k)); // same order as the feature list (KOT screen next to KOT print)
   if (!keys.length) return <p className="text-sm text-muted">No extra features in your plan yet. Ask the platform admin to upgrade.</p>;
   return (
     <div className="space-y-2">

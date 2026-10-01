@@ -9,7 +9,8 @@ import { AutoPrint, PrintNow } from "@/components/kot-screen";
 // Print one KOT slip: /kot/<orderId>?size=58|80|half&print=1
 export default async function KotPrint({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ size?: string; print?: string; back?: string }> }) {
   const u = await requireUser();
-  if (!can(u, "kot") && !(can(u, "orders") && u.features.includes("kot"))) redirect("/no-access");
+  // printing KOT slips is its own feature ("KOT print"), separate from the kitchen screen
+  if (!u.features.includes("kotPrint") || !(can(u, "kot") || can(u, "orders"))) redirect("/no-access");
   const k = await loadKot(u.tenantId, Number((await params).id));
   if (!k) notFound();
   const { o, s } = k;

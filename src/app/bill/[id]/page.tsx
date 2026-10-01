@@ -16,7 +16,7 @@ export default async function Bill({ params, searchParams }: { params: Promise<{
   const { o, s, paid, due, pay, billPack } = b;
   const sp = await searchParams;
   const q = sp.size;
-  const withKot = !!o.kotNo && sp.kot === "1" && u.features.includes("kot");
+  const withKot = !!o.kotNo && sp.kot === "1" && u.features.includes("kotPrint");
   const size: Size = q === "80" || q === "58" || q === "a4" || q === "half" ? q : "a4";
   const thermal = size !== "a4"; // compact receipt layout (thermal rolls, and half an A4 sheet)
   const half = size === "half";
@@ -30,7 +30,7 @@ export default async function Bill({ params, searchParams }: { params: Promise<{
   return (
     <div className="min-h-dvh bg-stone-100 py-4 print:bg-white print:py-0">
       <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor) + (half ? "@page{size:A4 portrait;margin:0}" : thermal ? `@page{size:${size}mm auto;margin:0}` : "") }} />
-      <PrintBar id={o.id} size={size} explicit={!!q} hasKot={!!o.kotNo && u.features.includes("kot")} withKot={withKot} kotExplicit={sp.kot !== undefined} billNo={o.billNo} defaultWidth={s.receiptWidth === "80" ? "80" : "58"}
+      <PrintBar id={o.id} size={size} explicit={!!q} hasKot={!!o.kotNo && u.features.includes("kotPrint")} withKot={withKot} kotExplicit={sp.kot !== undefined} billNo={o.billNo} defaultWidth={s.receiptWidth === "80" ? "80" : "58"}
         phone={o.customer?.phone ?? ""} message={`*${s.name}* - Bill ${o.billNo}\nTotal: ₹${Number(o.total)}${due > 0 ? `\nDue: ₹${due}` : "\nPaid - thank you!"}\nYour bill is attached (PDF).`} />
       <div className={`mx-auto bg-white text-black shadow print:shadow-none ${width}`}>
         <div className="text-center">

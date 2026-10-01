@@ -1,4 +1,5 @@
 "use server";
+import { kotAnyOn, kotScreenOn } from "@/lib/features";
 import crypto from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -223,7 +224,7 @@ export async function acceptOnlineOrderAction(id: number, upiReceived: boolean):
         items: lines.map((l) => ({ menuItemId: l.menuItemId, qty: l.qty, discount: 0, rate: Number(l.rate) })),
         deliveryCharge: delivery ? Number(s?.defaultDeliveryCharge ?? 0) : 0, packingCharge: 0, orderDiscount: Number(claimed.discount ?? 0),
         notes, isPreorder: claimed.isPreorder, mealSlot: claimed.mealSlot, slotTime: claimed.slotTime,
-        kot: u.features.includes("kot"),
+        kot: kotAnyOn(u.features), kotScreen: kotScreenOn(u.features),
       }, u.id);
       if (Number(claimed.paidOnline) > 0 && claimed.payLinkId) {
         // already paid through the gateway: put it on the bill (same reference, so a late webhook can't add it twice)

@@ -26,7 +26,7 @@ export default async function EditOrder({ params }: { params: Promise<{ id: stri
       today={todayIST()}
       canPickDate={canEditAnyOrder(u)}
       allowPreorder={u.features.includes("preorders")}
-      kotFeature={u.features.includes("kot")}
+      kotScreen={u.features.includes("kot")} kotPrint={u.features.includes("kotPrint")}
       kotNo={o.kotNo}
       orderLabel={o.billNo}
       initial={{

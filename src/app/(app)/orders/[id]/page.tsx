@@ -49,7 +49,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         subtitle={<>{fmtDate(o.date)} · {o.orderType}{o.tableNo ? ` · Table ${o.tableNo}` : ""} · by {o.createdBy?.name ?? "—"} · {fmtDateTime(o.createdAt)}</>}
         actions={<>
           <Link href={`/bill/${o.id}`} className="btn-primary">🧾 Bill / Print</Link>
-          {o.kotNo && <Link href={`/kot/${o.id}`} className="btn-gold">🍳 Print KOT #{o.kotNo}</Link>}
+          {o.kotNo && u.features.includes("kotPrint") && <Link href={`/kot/${o.id}`} className="btn-gold">🍳 Print KOT #{o.kotNo}</Link>}
           <SharePdfButton orderId={o.id} billNo={o.billNo} phone={o.customer?.phone ?? ""} message={msg} label="📄 WhatsApp bill (PDF)" />
           <a href={wa} target="_blank" className="btn-ghost">WhatsApp text</a>
           {editable && o.status === "ACTIVE" && o.cancelStatus !== "REQUESTED" && <Link href={`/orders/${o.id}/edit`} className="btn-ghost">Edit</Link>}

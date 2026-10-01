@@ -26,6 +26,8 @@ export type OrderInput = {
   slotTime?: string;
   /** send a KOT to the kitchen (restaurants with the KOT feature) */
   kot?: boolean;
+  /** false when the restaurant has no kitchen screen (KOT print only): tickets are not put in the screen's to-do list */
+  kotScreen?: boolean;
 };
 
 /** Your cost for one piece, and the price used only when an order charges packaging (blank = same as cost) */
@@ -180,11 +182,11 @@ export async function saveOrder(tenantId: number, input: OrderInput, userId: num
         const moved = prev.date !== base.date;
         if (changed || moved) {
           if (moved) await tx.execute(sql`select pg_advisory_xact_lock(${tenantId})`);
-          kot = { kotStatus: "NEW", kotAt: new Date(), kotUpdated: true, ...(moved ? { kotNo: await kotNext(tx as unknown as typeof db, base.date) } : {}) };
+          kot = { kotStatus: input.kotScreen === false ? "SERVED" : "NEW", kotAt: new Date(), kotUpdated: input.kotScreen !== false, ...(moved ? { kotNo: await kotNext(tx as unknown as typeof db, base.date) } : {}) };
         }
       } else if (input.kot) {
         await tx.execute(sql`select pg_advisory_xact_lock(${tenantId})`);
-        kot = { kotNo: await kotNext(tx as unknown as typeof db, base.date), kotStatus: "NEW", kotAt: new Date(), kotUpdated: false };
+        kot = { kotNo: await kotNext(tx as unknown as typeof db, base.date), kotStatus: input.kotScreen === false ? "SERVED" : "NEW", kotAt: new Date(), kotUpdated: false };
       }
       await tx.update(schema.orders).set({
         ...base, ...kot,
@@ -200,7 +202,7 @@ export async function saveOrder(tenantId: number, input: OrderInput, userId: num
       const fy = setting.billUseFy ? financialYear(input.date) : "";
       const orderNo = await nextFreeNo(tx as unknown as typeof db, tenantId, fy, setting.billStart || 1, setting.reuseCancelledNo);
       const billNo = formatBillNo(setting, orderNo, fy);
-      const kot = input.kot ? { kotNo: await kotNext(tx as unknown as typeof db, base.date), kotStatus: "NEW", kotAt: new Date() } : {};
+      const kot = input.kot ? { kotNo: await kotNext(tx as unknown as typeof db, base.date), kotStatus: input.kotScreen === false ? "SERVED" : "NEW", kotAt: new Date() } : {};
       const [row] = await tx.insert(schema.orders).values({ ...base, ...kot, tenantId, orderNo, fy, billNo, createdById: userId, bookedOn: base.isPreorder ? todayIST() : null, fulfilStatus: base.isPreorder ? "PENDING" : "" }).returning({ id: schema.orders.id });
       orderId = row.id;
     }

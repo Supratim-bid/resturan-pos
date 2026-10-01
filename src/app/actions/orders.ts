@@ -8,6 +8,7 @@ import { requireAction } from "@/lib/auth";
 import { canEditAnyOrder } from "@/lib/permissions";
 import { saveOrder, cancelOrder, restoreOrder, settleCancelledMoney, receiveCustomerPayment, type OrderInput } from "@/lib/orders";
 import { round2, todayIST } from "@/lib/format";
+import { kotAnyOn, kotScreenOn } from "@/lib/features";
 import { checkPaymentLink, createPaymentLink } from "@/lib/gateway";
 
 type R<T = undefined> = { ok: true; data?: T; warning?: string } | { ok: false; error: string };
@@ -34,7 +35,8 @@ export async function saveOrderAction(input: OrderInput): Promise<R<number>> {
       throw new Error("This login can only create orders for today (or pre-orders for a later date).");
     }
     if (input.isPreorder && !input.id && input.date < todayIST()) throw new Error("A pre-order must be for today or a later date.");
-    input.kot = !!input.kot && u.features.includes("kot");
+    input.kot = !!input.kot && kotAnyOn(u.features);
+    input.kotScreen = kotScreenOn(u.features);
     // prices always come from the menu (or the bill's own earlier prices) - never from the browser
     input.items = (input.items ?? []).map((i) => ({ menuItemId: i.menuItemId, qty: i.qty, discount: i.discount }));
     const id = await saveOrder(u.tenantId, input, u.id);
