@@ -205,11 +205,19 @@ export function UserRow({ tenantId, user }: { tenantId: number; user: { id: numb
   );
 }
 
-export function DeleteTenant({ id, code }: { id: number; code: string }) {
+export function DeleteTenant({ id, code, active }: { id: number; code: string; active: boolean }) {
   const [pending, start] = useTransition();
+  if (!active) {
+    // paused (login locked) - one click, no confirmation, as set for non-payers
+    return (
+      <button className="btn-danger btn-sm" disabled={pending} onClick={() => start(async () => { const r = await deleteTenantAction(id, ""); if (r && !r.ok) alert(r.error); })}>
+        {pending ? "Deleting…" : "Delete now (paused)"}
+      </button>
+    );
+  }
   return (
     <button className="btn-danger btn-sm" disabled={pending} onClick={() => {
-      const c = prompt(`This permanently deletes the restaurant and ALL its data (orders, menu, customers…).\nType the code "${code}" to confirm:`);
+      const c = prompt(`This restaurant is ACTIVE. This permanently deletes it and ALL its data (orders, menu, customers…).\nType the code "${code}" to confirm (or pause it first for one-click delete):`);
       if (!c) return;
       start(async () => { const r = await deleteTenantAction(id, c); if (r && !r.ok) alert(r.error); });
     }}>Delete restaurant permanently</button>

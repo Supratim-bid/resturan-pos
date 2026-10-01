@@ -305,7 +305,9 @@ export async function deleteTenantAction(id: number, confirmCode: string): Promi
     await requireAdmin();
     const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, id) });
     if (!t) throw new Error("Not found.");
-    if (confirmCode.trim().toLowerCase() !== t.code) throw new Error(`Type the code "${t.code}" to confirm.`);
+    // A paused restaurant (login locked - e.g. a non-payer) deletes with one click.
+    // An active restaurant still needs its code typed, so a paying one can't be wiped by a misclick.
+    if (t.active && confirmCode.trim().toLowerCase() !== t.code) throw new Error(`This restaurant is active. Pause it first for one-click delete, or type the code "${t.code}" to confirm.`);
     await db.delete(schema.tenants).where(eq(schema.tenants.id, id)); // cascades all its data
     revalidatePath("/admin");
   } catch (e) { return err(e); }

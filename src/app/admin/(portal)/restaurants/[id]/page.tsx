@@ -68,7 +68,14 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
       <Card title="Bill setup">
         <p className="text-sm">Bill numbers: <b className="font-mono">{s?.billPrefix}{s?.billUseFy ? "YY-YY/" : ""}{"0".repeat(Math.max(0, (s?.billDigits ?? 4) - 1))}1</b> · GST {Number(s?.gstRate ?? 0)}% · receipt {s?.receiptWidth}mm</p>
       </Card>
-      <Card title="Danger zone"><DeleteTenant id={id} code={t.code} /></Card>
+      <Card title="Danger zone">
+        <p className="mb-2 text-sm text-muted">
+          {t.active
+            ? <>This restaurant is <b>active</b>, so deleting it asks you to type its code first. To delete a non-payer in one click, <b>pause</b> it at the top of this page — a paused restaurant deletes with no confirmation.</>
+            : <>This restaurant is <b>paused</b> (its logins are locked). Deleting it is <b>one click and permanent</b> — it wipes all orders, menu, customers and settings, and cannot be undone.</>}
+        </p>
+        <DeleteTenant id={id} code={t.code} active={t.active} />
+      </Card>
     </div>
   );
 }
