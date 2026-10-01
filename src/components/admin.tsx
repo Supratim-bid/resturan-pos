@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import {
   requestOtpAction, verifyOtpAction, passwordLoginAction, createTenantAction, updateTenantAction, setTenantActiveAction, addOwnerAction,
   resetUserPasswordAction, deleteTenantAction, addSuperAdminAction, setSuperAdminActiveAction, setTenantFeatureAction,
-  setTenantPlanAction, savePlanAction, deletePlanAction,
+  setTenantPlanAction, savePlanAction, deletePlanAction, openTenantAsOwnerAction, editUserAction, deleteUserAction,
 } from "@/app/actions/admin";
 import { FEATURES, FEATURE_GROUPS, FEATURE_KEYS, type FeatureKey, type FeatureGroup } from "@/lib/features";
 import { Modal } from "./crud";
@@ -161,6 +161,47 @@ export function ResetPassword({ tenantId, userId, name }: { tenantId: number; us
       if (!pw) return;
       start(async () => { const r = await resetUserPasswordAction(tenantId, userId, pw); alert(r.ok ? r.msg ?? "Done" : r.error); router.refresh(); });
     }}>Reset password</button>
+  );
+}
+
+export function OpenAsOwner({ tenantId, name }: { tenantId: number; name: string }) {
+  const [pending, start] = useTransition();
+  return (
+    <button className="btn-primary btn-sm" disabled={pending} onClick={() => {
+      if (!confirm(`Open ${name} as its owner?\n\nYou will be inside their live app and anything you change is real. This entry is logged.`)) return;
+      start(async () => { const r = await openTenantAsOwnerAction(tenantId); if (r && !r.ok) alert(r.error); });
+    }}>{pending ? "Opening…" : "↪ Open as owner"}</button>
+  );
+}
+
+/** Edit / delete one login, plus reset password */
+export function UserRow({ tenantId, user }: { tenantId: number; user: { id: number; name: string; username: string; phone: string; role: string; roleLabel: string; active: boolean } }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState({ name: user.name, username: user.username, phone: user.phone });
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 py-2">
+      <div><div className="font-medium">{user.name} <span className="text-xs text-muted">({user.roleLabel})</span></div><div className="text-xs text-muted">@{user.username}{user.phone ? ` · ${user.phone}` : ""}{!user.active && " · inactive"}</div></div>
+      <div className="flex flex-wrap gap-1.5">
+        <button className="btn-ghost btn-sm" onClick={() => { setEdit(true); setM(null); setV({ name: user.name, username: user.username, phone: user.phone }); }}>Edit</button>
+        <ResetPassword tenantId={tenantId} userId={user.id} name={user.name} />
+        <button className="btn-danger btn-sm" disabled={pending} onClick={() => {
+          if (!confirm(`Delete the login "${user.name}" (@${user.username})? This cannot be undone.`)) return;
+          start(async () => { const r = await deleteUserAction(tenantId, user.id); if (!r.ok) alert(r.error); router.refresh(); });
+        }}>Delete</button>
+      </div>
+      <Modal open={edit} onClose={() => setEdit(false)} title={`Edit ${user.name}`}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {field("Full name", v.name, (x) => setV({ ...v, name: x }), { half: true })}
+          {field("Phone", v.phone, (x) => setV({ ...v, phone: x }), { half: true })}
+          {field("Username", v.username, (x) => setV({ ...v, username: x.toLowerCase() }), { half: true })}
+        </div>
+        <div className="mt-3"><Msg m={m} /></div>
+        <button className="btn-primary mt-3 w-full" disabled={pending} onClick={() => start(async () => { const r = await editUserAction(tenantId, user.id, v); if (!r.ok) setM({ ok: false, t: r.error }); else { setEdit(false); router.refresh(); } })}>Save changes</button>
+      </Modal>
+    </li>
   );
 }
 

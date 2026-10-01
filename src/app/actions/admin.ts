@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
-import { ADMIN_COOKIE, signAdmin } from "@/lib/session";
+import { ADMIN_COOKIE, COOKIE, signAdmin, signSession } from "@/lib/session";
 import { requireAdmin } from "@/lib/auth";
 import { sendMail } from "@/lib/mail";
 import { envAdminEmails, syncEnvAdmins } from "@/lib/admin-env";
@@ -230,6 +230,34 @@ export async function addOwnerAction(tenantId: number, v: { name: string; userna
   } catch (e) { return err(e); }
 }
 
+/** Super admin opens a restaurant as its owner. Every entry is written to admin_impersonations. */
+export async function openTenantAsOwnerAction(tenantId: number): Promise<R> {
+  try {
+    const admin = await requireAdmin();
+    const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, tenantId) });
+    if (!t) throw new Error("Restaurant not found.");
+    if (!t.active) throw new Error("This restaurant is paused. Make it active first.");
+    // prefer an active OWNER login; fall back to any active login
+    const owners = await db.query.users.findMany({ where: and(eq(schema.users.tenantId, tenantId), eq(schema.users.active, true)) });
+    const u = owners.find((x) => x.role === "OWNER") ?? owners[0];
+    if (!u) throw new Error("This restaurant has no active login to enter as.");
+    await db.insert(schema.adminImpersonations).values({
+      adminId: admin.id, adminEmail: admin.email, tenantId: t.id, tenantName: t.name, tenantCode: t.code,
+      userId: u.id, userName: u.name, ip: await clientIp(),
+    });
+    const jar = await cookies();
+    jar.set(COOKIE, await signSession({ uid: u.id, tid: t.id, role: u.role, name: u.name, v: u.sessionVersion, imp: true }),
+      { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 12 });
+  } catch (e) { return err(e); }
+  redirect(`/`); // the app reads the new owner session; a banner marks it as a support view
+}
+
+/** Leave a support view and go back to the admin panel. */
+export async function exitImpersonationAction() {
+  (await cookies()).delete(COOKIE);
+  redirect("/admin");
+}
+
 export async function resetUserPasswordAction(tenantId: number, userId: number, password: string): Promise<R> {
   try {
     await requireAdmin();
@@ -239,6 +267,36 @@ export async function resetUserPasswordAction(tenantId: number, userId: number, 
     await db.update(schema.users).set({ passwordHash: await bcrypt.hash(password, 10), active: true, sessionVersion: u.sessionVersion + 1 }).where(eq(schema.users.id, userId));
     revalidatePath(`/admin/restaurants/${tenantId}`);
     return { ok: true, msg: `Password reset for ${u.name}.` };
+  } catch (e) { return err(e); }
+}
+
+export async function editUserAction(tenantId: number, userId: number, v: { name: string; username: string; phone?: string }): Promise<R> {
+  try {
+    await requireAdmin();
+    const username = v.username.trim().toLowerCase();
+    if (!v.name.trim()) throw new Error("Enter a name.");
+    if (!USERNAME_RE.test(username)) throw new Error("Username: 3-30 letters/numbers, no spaces.");
+    const u = await db.query.users.findFirst({ where: and(eq(schema.users.id, userId), eq(schema.users.tenantId, tenantId)) });
+    if (!u) throw new Error("User not found.");
+    await db.update(schema.users).set({ name: v.name.trim(), username, phone: v.phone ?? "" }).where(eq(schema.users.id, userId));
+    revalidatePath(`/admin/restaurants/${tenantId}`);
+    return { ok: true, msg: "Saved." };
+  } catch (e) { return err(e); }
+}
+
+export async function deleteUserAction(tenantId: number, userId: number): Promise<R> {
+  try {
+    await requireAdmin();
+    const u = await db.query.users.findFirst({ where: and(eq(schema.users.id, userId), eq(schema.users.tenantId, tenantId)) });
+    if (!u) throw new Error("User not found.");
+    if (u.role === "OWNER") {
+      const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.users)
+        .where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.role, "OWNER"), eq(schema.users.active, true)));
+      if (Number(n) <= 1 && u.active) throw new Error("This is the restaurant's only active owner. Add another owner before deleting this one.");
+    }
+    await db.delete(schema.users).where(eq(schema.users.id, userId));
+    revalidatePath(`/admin/restaurants/${tenantId}`);
+    return { ok: true, msg: `Deleted ${u.name}.` };
   } catch (e) { return err(e); }
 }
 

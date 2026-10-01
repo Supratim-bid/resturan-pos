@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/auth";
 import { ROLE_LABEL } from "@/lib/permissions";
-import { fmtDate, inr } from "@/lib/format";
+import { fmtDate, fmtDateTime, inr } from "@/lib/format";
 import { Badge, Card, PageHeader, Stat } from "@/components/ui";
-import { AddOwner, DeleteTenant, ResetPassword, TenantEditor, TenantFeatures, TenantPlan } from "@/components/admin";
+import { AddOwner, DeleteTenant, OpenAsOwner, TenantEditor, TenantFeatures, TenantPlan, UserRow } from "@/components/admin";
 import { listPlans } from "@/lib/plans";
 
 export default async function TenantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -14,19 +14,20 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
   const id = Number((await params).id);
   const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, id) });
   if (!t) notFound();
-  const [users, [stats], [menu], s, plans] = await Promise.all([
+  const [users, [stats], [menu], s, plans, visits] = await Promise.all([
     db.query.users.findMany({ where: eq(schema.users.tenantId, id), orderBy: [asc(schema.users.role), asc(schema.users.name)] }),
     db.select({ n: sql<number>`count(*)`, sum: sql<number>`coalesce(sum(${schema.orders.total}),0)`, last: sql<string>`max(${schema.orders.date})` }).from(schema.orders).where(eq(schema.orders.tenantId, id)),
     db.select({ n: sql<number>`count(*)` }).from(schema.menuItems).where(eq(schema.menuItems.tenantId, id)),
     db.query.settings.findFirst({ where: eq(schema.settings.tenantId, id) }),
     listPlans(),
+    db.query.adminImpersonations.findMany({ where: eq(schema.adminImpersonations.tenantId, id), orderBy: [desc(schema.adminImpersonations.id)], limit: 20 }),
   ]);
   const plan = plans.find((p) => p.key === t.plan);
   return (
     <div className="space-y-4">
       <Link href="/admin" className="text-sm text-brand">← All restaurants</Link>
       <PageHeader title={t.name} subtitle={<>Login code <b className="font-mono">{t.code}</b> · staff login link: <a className="font-mono underline" href={`/${t.code}`} target="_blank">/{t.code}</a></>}
-        actions={t.active ? <Badge tone="green">Active</Badge> : <Badge tone="amber">Paused</Badge>} />
+        actions={<div className="flex items-center gap-2">{t.active ? <Badge tone="green">Active</Badge> : <Badge tone="amber">Paused</Badge>}{t.active && <OpenAsOwner tenantId={id} name={t.name} />}</div>} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Orders (all time)" value={Number(stats.n)} />
         <Stat label="Billed (all time)" value={inr(Number(stats.sum))} />
@@ -39,13 +40,23 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
       <Card title="Logins" actions={<AddOwner tenantId={id} />}>
         <ul className="divide-y divide-line">
           {users.map((u) => (
-            <li key={u.id} className="flex items-center justify-between gap-2 py-2">
-              <div><div className="font-medium">{u.name}</div><div className="text-xs text-muted">@{u.username} · {ROLE_LABEL[u.role]}{!u.active && " · inactive"}</div></div>
-              <ResetPassword tenantId={id} userId={u.id} name={u.name} />
-            </li>
+            <UserRow key={u.id} tenantId={id} user={{ id: u.id, name: u.name, username: u.username, phone: u.phone, role: u.role, roleLabel: ROLE_LABEL[u.role], active: u.active }} />
           ))}
         </ul>
-        <p className="mt-2 text-xs text-muted">Owners manage their own staff logins and tab access inside the app (Settings &amp; Users).</p>
+        <p className="mt-2 text-xs text-muted">Edit, reset password or delete any login here. Owners also manage their own staff logins and tab access inside the app (Settings &amp; Users).</p>
+      </Card>
+      <Card title="Support access log">
+        <p className="mb-2 text-sm text-muted">Every time a super admin opened this restaurant as its owner. Kept for your records (and partner revenue checks).</p>
+        {visits.length ? (
+          <ul className="divide-y divide-line text-sm">
+            {visits.map((v) => (
+              <li key={v.id} className="flex flex-wrap items-center justify-between gap-x-3 py-1.5">
+                <span><b>{v.adminEmail}</b> entered as {v.userName || "owner"}</span>
+                <span className="text-xs text-muted">{fmtDateTime(v.createdAt)}{v.ip ? ` · ${v.ip}` : ""}</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-sm text-muted">No support visits yet.</p>}
       </Card>
       <Card title="Website & policy pages">
         <p className="mb-2 text-sm text-muted">Ready for payment-gateway sign-up once Online ordering or Payment gateways is on. The owner can edit the text in Settings.</p>

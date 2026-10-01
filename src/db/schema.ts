@@ -63,6 +63,20 @@ export const phoneOtps = pgTable("phone_otps", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("phone_otps_phone").on(t.tenantId, t.phone)]);
 
+// Audit log: every time a super admin opens a restaurant as its owner (kept even if the restaurant is later deleted - no FK cascade)
+export const adminImpersonations = pgTable("admin_impersonations", {
+  id: serial("id").primaryKey(),
+  adminId: integer("admin_id"),
+  adminEmail: text("admin_email").notNull(),
+  tenantId: integer("tenant_id"),
+  tenantName: text("tenant_name").notNull().default(""),
+  tenantCode: text("tenant_code").notNull().default(""),
+  userId: integer("user_id"),         // the owner login that was entered
+  userName: text("user_name").notNull().default(""),
+  ip: text("ip").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const adminOtps = pgTable("admin_otps", {
   id: serial("id").primaryKey(),
   email: text("email").notNull(),

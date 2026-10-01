@@ -5,6 +5,7 @@ import { MODULES, can, ROLE_LABEL, type ModuleKey } from "@/lib/permissions";
 import { themeCss } from "@/lib/theme";
 import { BottomNav, NavProgress, SideNav, type NavItem } from "@/components/nav";
 import { logout } from "../actions/auth";
+import { exitImpersonationAction } from "../actions/admin";
 import { db, schema } from "@/db";
 
 const ICONS: Record<ModuleKey, string> = {
@@ -27,6 +28,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const name = setting?.name ?? "Restaurant";
 
   return (
+    <>
+      {user.impersonated && (
+        <div className="no-print flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-500 px-3 py-1.5 text-center text-xs font-semibold text-black">
+          <span>⚠ Support view · you are inside <b>{name}</b> as {user.name}. Changes you make are real.</span>
+          <form action={exitImpersonationAction}><button className="rounded bg-black/80 px-2 py-0.5 font-bold text-white hover:bg-black">Exit to admin</button></form>
+        </div>
+      )}
     <div className="md:flex">
       <NavProgress />
       <style dangerouslySetInnerHTML={{ __html: themeCss(setting?.primaryColor, setting?.accentColor) }} />
@@ -56,5 +64,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
       <BottomNav items={bottom} />
     </div>
+    </>
   );
 }

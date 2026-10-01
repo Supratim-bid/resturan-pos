@@ -5,7 +5,7 @@ import type { Role } from "./permissions";
 export const COOKIE = "ap_session";
 export const ADMIN_COOKIE = "ap_admin";
 export const TENANT_COOKIE = "ap_rest"; // remembers the restaurant code on this device
-export type SessionPayload = { uid: number; tid: number; role: Role; name: string; v: number };
+export type SessionPayload = { uid: number; tid: number; role: Role; name: string; v: number; imp?: boolean };
 export type AdminPayload = { admin: string; aid: number };
 
 function key() {
