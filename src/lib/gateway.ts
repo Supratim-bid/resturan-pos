@@ -168,20 +168,59 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
       link_notes: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
       ...(withMeta && Object.keys(meta).length ? { link_meta: meta } : {}),
     });
-    let q: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    let q: Record<string, any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    let linksOff = false;
     try {
       q = await cashfree(s)("/links", body(true));
     } catch (e) {
-      // a return / notify address Cashfree won't accept (e.g. domain not whitelisted yet): make the link without them -
-      // the customer's order page still checks the payment by itself
-      if (!Object.keys(meta).length || /authentication|client|secret|credential/i.test(String((e as Error).message))) throw e;
-      console.error("cashfree link with return url failed, retrying without:", (e as Error).message);
-      q = await cashfree(s)("/links", body(false));
+      const m = String((e as Error).message);
+      if (/not enabled|not approved|not activated/i.test(m)) linksOff = true; // Payment Links API not switched on for this account
+      else if (!Object.keys(meta).length || /authentication|client|secret|credential/i.test(m)) throw e;
+      else {
+        // a return / notify address Cashfree won't accept (e.g. domain not whitelisted yet): make the link without them -
+        // the customer's order page still checks the payment by itself
+        console.error("cashfree link with return url failed, retrying without:", m);
+        try { q = await cashfree(s)("/links", body(false)); }
+        catch (e2) { if (/not enabled|not approved|not activated/i.test(String((e2 as Error).message))) linksOff = true; else throw e2; }
+      }
     }
-    id = q.link_id || linkId; url = q.link_url; status = q.link_status || "ACTIVE";
+    if (q) { id = q.link_id || linkId; url = q.link_url; status = q.link_status || "ACTIVE"; }
+    else if (linksOff) {
+      // fall back to Cashfree's standard checkout (Orders API - on for every live account); our own page opens it
+      const orderId = `cfo_${linkId}`.slice(0, 45);
+      const cphone = phone.length === 10 ? phone : own.length === 10 ? own : "9999999999";
+      const order = (withMeta: boolean) => ({
+        order_id: orderId, order_amount: r.amount, order_currency: "INR", order_note: r.purpose.slice(0, 200),
+        customer_details: { customer_id: `c${cphone}`, customer_phone: cphone, ...(r.customerName ? { customer_name: r.customerName.slice(0, 100) } : {}) },
+        order_tags: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
+        ...(withMeta && Object.keys(meta).length ? { order_meta: { ...(meta.return_url ? { return_url: meta.return_url } : {}), ...(meta.notify_url ? { notify_url: meta.notify_url } : {}) } } : {}),
+      });
+      let o: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+      try { o = await cashfree(s)("/orders", order(true)); }
+      catch (e) {
+        if (!Object.keys(meta).length || /authentication|client|secret|credential/i.test(String((e as Error).message))) throw e;
+        console.error("cashfree order with return url failed, retrying without:", (e as Error).message);
+        o = await cashfree(s)("/orders", order(false));
+      }
+      id = String(o.order_id || orderId); status = String(o.order_status || "ACTIVE");
+      url = `${r.origin || ""}/api/pay/checkout/${encodeURIComponent(id)}`;
+    }
   }
   if (!id || !url) throw new Error(`${GATEWAY_LABEL[g]}: no link came back. Check the keys.`);
   return { provider: g, id, url, status };
+}
+
+/** Cashfree checkout orders (used when the Payment Links API is off) carry this prefix */
+export const isCfOrder = (id: string) => id.startsWith("cfo_");
+/** What the checkout page needs: the payment session for a Cashfree order, or that it's already paid */
+export async function cashfreeCheckout(id: string) {
+  const tid = await tenantOfLink("cashfree", id);
+  if (!tid || !isCfOrder(id)) return null;
+  const s = await settingsOf(tid);
+  const o = await cashfree(s)(`/orders/${encodeURIComponent(id)}`);
+  const st = String(o.order_status ?? "");
+  if (st === "PAID") await recordAnyLink("cashfree", id, Number(o.order_amount ?? 0), st, tid);
+  return { status: st, session: String(o.payment_session_id ?? ""), amount: Number(o.order_amount ?? 0), test: !!s.cashfreeTest, name: s.name, returnUrl: String(o.order_meta?.return_url ?? "") };
 }
 
 /** Owner's "Test connection": make a ₹1 link to prove the keys and account work (nothing is charged unless someone pays it) */
@@ -190,7 +229,8 @@ export async function testGatewayLink(tenantId: number, origin: string) {
   const g = activeGateway(s);
   if (!g) throw new Error("Choose a gateway and save its keys first.");
   const link = await createGatewayLink(tenantId, { amount: 1, purpose: `${s.name} - connection test`, ref: "test", origin, returnUrl: /^https:\/\//.test(origin) ? `${origin}/settings` : "", notes: { test: "1" } });
-  return `${GATEWAY_LABEL[g]} works${(g === "cashfree" ? s.cashfreeTest : g === "instamojo" ? s.instamojoTest : false) ? " (TEST mode - switch it off for real payments)" : ""}. Test link for ₹1: ${link.url}`;
+  const mode = g === "cashfree" && link.url.includes("/api/pay/checkout/") ? " using Cashfree Checkout (Payment Links API isn't enabled on your account - that's fine, checkout does the same job)" : "";
+  return `${GATEWAY_LABEL[g]} works${mode}${(g === "cashfree" ? s.cashfreeTest : g === "instamojo" ? s.instamojoTest : false) ? " (TEST mode - switch it off for real payments)" : ""}. Test link for ₹1: ${link.url}`;
 }
 
 /** Ask the gateway how much was paid on a link */
@@ -204,6 +244,11 @@ export async function linkStatus(tenantId: number, provider: Gateway, id: string
     const q = await (await instamojo(s))(`/payment_requests/${id}/`);
     const st = String(q.status ?? "");
     return { status: st, paid: st === "Completed" ? Number(q.amount ?? expected) : 0, done: st === "Completed" };
+  }
+  if (isCfOrder(id)) {
+    const o = await cashfree(s)(`/orders/${encodeURIComponent(id)}`);
+    const st = String(o.order_status ?? "");
+    return { status: st, paid: st === "PAID" ? Number(o.order_amount ?? expected) : 0, done: st === "PAID" };
   }
   const q = await cashfree(s)(`/links/${encodeURIComponent(id)}`);
   return { status: String(q.link_status ?? ""), paid: Number(q.link_amount_paid ?? 0), done: q.link_status === "PAID" };

@@ -24,7 +24,12 @@ const nextConfig: NextConfig = {
   // app details (manifest, icons) always in <head>, so phones can install the app (no streamed metadata)
   htmlLimitedBots: /.*/,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    // the Cashfree checkout page hands over to Cashfree's own payment page, so it may not keep "form-action 'self'"
+    const checkout = securityHeaders.map((h) => h.key === "Content-Security-Policy" ? { ...h, value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" } : h);
+    return [
+      { source: "/((?!api/pay/checkout/).*)", headers: securityHeaders },
+      { source: "/api/pay/checkout/:id", headers: checkout },
+    ];
   },
 };
 export default nextConfig;
