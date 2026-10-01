@@ -4,7 +4,7 @@ import { db, schema } from "@/db";
 
 /** Super admin emails listed in .env (SUPERADMIN_EMAILS, comma separated) */
 export function envAdminEmails() {
-  return (process.env.SUPERADMIN_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  return (process.env.SUPERADMIN_EMAILS || "").replace(/["']/g, "").split(",").map((e) => e.trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
 }
 
 /** Make sure every .env super admin exists and is active. Runs when the server starts (and before each login). */

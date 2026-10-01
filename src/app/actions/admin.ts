@@ -74,13 +74,15 @@ export async function verifyOtpAction(emailRaw: string, codeRaw: string): Promis
   (await cookies()).set(ADMIN_COOKIE, await signAdmin({ admin: email, aid: admin.id }), {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 12,
   });
-  redirect("/admin");
+  // the browser opens /admin itself with a full page load (a redirect from here could stall on "Checking…")
+  return { ok: true };
 }
 
 // ---------- password login (SUPERADMIN_PASSWORD in .env) ----------
 export async function passwordLoginAction(emailRaw: string, password: string): Promise<R> {
   const email = emailRaw.trim().toLowerCase();
-  const envPw = process.env.SUPERADMIN_PASSWORD || "";
+  // tolerate how the value was pasted into the host (Vercel): surrounding quotes or spaces are not part of the password
+  const envPw = (process.env.SUPERADMIN_PASSWORD || "").trim().replace(/^(["'])(.*)\1$/, "$2");
   if (!envPw) return { ok: false, error: "Password login is off. Set SUPERADMIN_PASSWORD in .env and restart." };
   if (envPw.length < 10) return { ok: false, error: "SUPERADMIN_PASSWORD in .env is too short - use at least 10 characters, then restart." };
   // 5 wrong tries for an email, or 20 from one network, lock it for 15 minutes (kept in the database)
@@ -89,7 +91,7 @@ export async function passwordLoginAction(emailRaw: string, password: string): P
   try { await assertNotLocked(keys); } catch (e) { return { ok: false, error: `${(e as Error).message} You can also use the email code.` }; }
   if (envAdminEmails().includes(email)) await syncEnvAdmins();
   const admin = await db.query.superAdmins.findFirst({ where: eq(schema.superAdmins.email, email) });
-  const a = createHash("sha256").update(password).digest(), b = createHash("sha256").update(envPw).digest();
+  const a = createHash("sha256").update(password.trim()).digest(), b = createHash("sha256").update(envPw).digest();
   if (!admin || !admin.active || !timingSafeEqual(a, b)) {
     await recordFailure([{ key: keys[0], limit: 5 }, { key: keys[1], limit: 20 }]);
     await new Promise((r) => setTimeout(r, 600));
@@ -99,7 +101,8 @@ export async function passwordLoginAction(emailRaw: string, password: string): P
   (await cookies()).set(ADMIN_COOKIE, await signAdmin({ admin: email, aid: admin.id }), {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 12,
   });
-  redirect("/admin");
+  // the browser opens /admin itself with a full page load (a redirect from here could stall on "Checking…")
+  return { ok: true };
 }
 
 export async function adminLogoutAction() {

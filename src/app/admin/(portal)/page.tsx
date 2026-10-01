@@ -10,14 +10,23 @@ import { listPlans } from "@/lib/plans";
 export default async function AdminHome() {
   await requireAdmin();
   const since = addDays(todayIST(), -29);
-  const [tenants, users, orders, owners, plans] = await Promise.all([
-    db.query.tenants.findMany({ orderBy: [desc(schema.tenants.createdAt)] }),
-    db.select({ t: schema.users.tenantId, n: sql<number>`count(*)` }).from(schema.users).groupBy(schema.users.tenantId),
-    db.select({ t: schema.orders.tenantId, n: sql<number>`count(*)`, s: sql<number>`coalesce(sum(${schema.orders.total}),0)`, last: sql<string>`max(${schema.orders.date})` })
-      .from(schema.orders).where(gte(schema.orders.date, since)).groupBy(schema.orders.tenantId),
-    db.query.users.findMany({ where: (u, { eq }) => eq(u.role, "OWNER") }),
-    listPlans(),
-  ]);
+  // one lookup at a time, each with a time limit: a slow one shows a note instead of leaving the page loading forever
+  const problems: string[] = [];
+  const step = async <T,>(name: string, q: () => Promise<T>, empty: T): Promise<T> => {
+    try {
+      return await Promise.race([q(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("took longer than 8 seconds")), 8000))]);
+    } catch (e) {
+      console.error(`[admin] ${name} failed:`, e);
+      problems.push(`${name}: ${String((e as Error)?.message || e).slice(0, 200)}`);
+      return empty;
+    }
+  };
+  const tenants = await step("restaurants", () => db.query.tenants.findMany({ orderBy: [desc(schema.tenants.createdAt)] }), [] as (typeof schema.tenants.$inferSelect)[]);
+  const plans = await step("plans", () => listPlans(), [] as Awaited<ReturnType<typeof listPlans>>);
+  const users = await step("login counts", () => db.select({ t: schema.users.tenantId, n: sql<number>`count(*)` }).from(schema.users).groupBy(schema.users.tenantId), [] as { t: number; n: number }[]);
+  const orders = await step("order totals", () => db.select({ t: schema.orders.tenantId, n: sql<number>`count(*)`, s: sql<number>`coalesce(sum(${schema.orders.total}),0)`, last: sql<string>`max(${schema.orders.date})` })
+    .from(schema.orders).where(gte(schema.orders.date, since)).groupBy(schema.orders.tenantId), [] as { t: number; n: number; s: number; last: string }[]);
+  const owners = await step("owners", () => db.query.users.findMany({ where: (u, { eq }) => eq(u.role, "OWNER") }), [] as (typeof schema.users.$inferSelect)[]);
   const pn = new Map(plans.map((p) => [p.key, p.name]));
   const mrr = tenants.filter((t) => t.active).reduce((a, t) => a + Number(plans.find((p) => p.key === t.plan)?.price ?? 0), 0);
   const um = new Map(users.map((x) => [x.t, Number(x.n)])), om = new Map(orders.map((x) => [x.t, x]));
@@ -26,6 +35,7 @@ export default async function AdminHome() {
   return (
     <div>
       <PageHeader title="Restaurants" subtitle="Every restaurant has its own data, logins, logo and bill numbers." actions={<NewTenantButton plans={plans.filter((p) => p.active).map((p) => ({ key: p.key, name: p.name, price: Number(p.price), maxUsers: p.maxUsers }))} />} />
+      {problems.length > 0 && <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800"><b>Some information couldn&apos;t load:</b><ul className="mt-1 list-disc pl-5">{problems.map((p) => <li key={p}>{p}</li>)}</ul><p className="mt-1 text-xs">Reload the page. If it keeps happening, send this box to support.</p></div>}
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Restaurants" value={tenants.length} />
         <Stat label="Active" value={active} tone="green" />

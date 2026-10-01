@@ -29,7 +29,7 @@ export function OtpLogin({ passwordOn = false }: { passwordOn?: boolean }) {
         </div>
       )}
       {way === "password" ? (
-        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); start(async () => { setM(null); const r = await passwordLoginAction(email, pw); if (r && !r.ok) setM({ ok: false, t: r.error }); }); }}>
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); start(async () => { setM(null); const r = await passwordLoginAction(email, pw); if (r?.ok) { setM({ ok: true, t: "Logged in - opening…" }); location.assign("/admin"); } else if (r) setM({ ok: false, t: r.error }); }); }}>
           <div><label className="label">Super admin email</label><input className="input" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
           <div><label className="label">Password</label><input className="input" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} required /></div>
           <button className="btn-primary w-full" disabled={pending}>{pending ? "Checking…" : "Log in"}</button>
@@ -40,7 +40,7 @@ export function OtpLogin({ passwordOn = false }: { passwordOn?: boolean }) {
           <button className="btn-primary w-full" disabled={pending}>{pending ? "Sending…" : "Email me a login code"}</button>
         </form>
       ) : (
-        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); start(async () => { setM(null); const r = await verifyOtpAction(email, code); if (r && !r.ok) setM({ ok: false, t: r.error }); }); }}>
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); start(async () => { setM(null); const r = await verifyOtpAction(email, code); if (r?.ok) { setM({ ok: true, t: "Logged in - opening…" }); location.assign("/admin"); } else if (r) setM({ ok: false, t: r.error }); }); }}>
           <p className="text-sm">Code sent to <b>{email}</b></p>
           <div><label className="label">6-digit code</label><input className="input text-center font-mono text-2xl tracking-[0.5em]" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} autoFocus /></div>
           <button className="btn-primary w-full" disabled={pending || code.length !== 6}>{pending ? "Checking…" : "Log in"}</button>

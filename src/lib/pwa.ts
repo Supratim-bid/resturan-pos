@@ -12,7 +12,8 @@ export async function currentCode() {
   const jar = await cookies();
   const s = await verifySession(jar.get(COOKIE)?.value);
   if (s) {
-    const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, s.tid), columns: { code: true } });
+    // only for the page's icon - never let it hold up a page
+    const t = await Promise.race([db.query.tenants.findFirst({ where: eq(schema.tenants.id, s.tid), columns: { code: true } }), new Promise<undefined>((r) => setTimeout(() => r(undefined), 3000))]);
     if (t) return t.code;
   }
   const r = (jar.get(TENANT_COOKIE)?.value ?? "").toLowerCase();

@@ -9,7 +9,13 @@ const url = process.env.DATABASE_URL!;
 // defaults to the Mac's zone, e.g. IST). Poolers (pgbouncer / Supabase :6543) reject startup
 // parameters, but those servers already run in UTC.
 const pooled = /pgbouncer=true|:6543\//.test(url);
-const client = globalForDb.pg ?? postgres(url, { prepare: false, max: 5, ...(pooled ? {} : { connection: { TimeZone: "UTC" } }) });
+// fetch_types:false - skips a type lookup on every new connection (we only use text arrays); that lookup can stall behind Supabase's pooler.
+// idle_timeout: close idle connections (each running copy of the app used to keep 5 open forever and use up Supabase's limit -> pages hang).
+// max 3 per copy, connect_timeout 10s: a page waits at most that long for the database instead of forever.
+const client = globalForDb.pg ?? postgres(url, {
+  prepare: false, max: 3, fetch_types: false, connect_timeout: 10, idle_timeout: 20, max_lifetime: 60 * 10,
+  ...(pooled ? {} : { connection: { TimeZone: "UTC" } }),
+});
 if (process.env.NODE_ENV !== "production") globalForDb.pg = client;
 
 export const db = drizzle(client, { schema });
