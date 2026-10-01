@@ -5,9 +5,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { notifyTenant } from "@/lib/push";
+import { activeGateway, createOnlineOrderLink, GATEWAY_LABEL, type Gateway } from "@/lib/gateway";
 import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { DEVICE_COOKIE, billCounts, deviceHash, loadStorefront, newDeviceId, priceCart, type OnlineLine } from "@/lib/online";
 import { saveOrder } from "@/lib/orders";
 import { lookupValues } from "@/lib/options";
@@ -111,6 +112,13 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
       url: "/online-orders", tag: `online-${token}`, icon: `/pwa/${tenant.code}/icon-192.png`, sticky: true,
     }));
     dest = `/${tenant.code}/order/${token}`;
+    // pay now through the restaurant's gateway: go straight to its payment page (UPI QR stays as the fallback)
+    if (payMethod === "UPI" && store.s && activeGateway(store.s)) {
+      const h = await headers();
+      const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? ""}`;
+      const w = await db.query.onlineOrders.findFirst({ where: eq(schema.onlineOrders.token, token), columns: { id: true } });
+      if (w) dest = await createOnlineOrderLink(tenant.id, w.id, origin, tenant.code).catch((e) => { console.error("online pay link", e); return dest; });
+    }
   } catch (e) { return fail(e); }
   redirect(dest);
 }
@@ -216,7 +224,14 @@ export async function acceptOnlineOrderAction(id: number, upiReceived: boolean):
         notes, isPreorder: claimed.isPreorder, mealSlot: claimed.mealSlot, slotTime: claimed.slotTime,
         kot: u.features.includes("kot"),
       }, u.id);
-      if (upiReceived) {
+      if (Number(claimed.paidOnline) > 0 && claimed.payLinkId) {
+        // already paid through the gateway: put it on the bill (same reference, so a late webhook can't add it twice)
+        const o = await db.query.orders.findFirst({ where: eq(schema.orders.id, orderId) });
+        if (o) await db.insert(schema.payments).values({
+          tenantId: u.tenantId, orderId, customerId: o.customerId, amount: round2(Math.min(Number(claimed.paidOnline), Number(o.total) + 0.5)),
+          mode: `Online (${GATEWAY_LABEL[(claimed.payLinkProvider || "razorpay") as Gateway]})`, date: todayIST(), ref: claimed.payLinkId, notes: "Paid online with the order",
+        });
+      } else if (upiReceived) {
         const o = await db.query.orders.findFirst({ where: eq(schema.orders.id, orderId) });
         if (o) await db.insert(schema.payments).values({
           tenantId: u.tenantId, orderId, customerId: o.customerId, amount: round2(Number(o.total)), mode: "UPI", date: todayIST(),

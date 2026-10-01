@@ -1,4 +1,5 @@
 import "server-only";
+import { activeGateway } from "./gateway";
 import { featureInfo, tenantWithPlan } from "./plans";
 import crypto from "node:crypto";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
@@ -27,7 +28,8 @@ export async function loadStorefront(codeRaw: string) {
   items.sort((a, b) => a.category.sortOrder - b.category.sortOrder || a.category.name.localeCompare(b.category.name) || a.name.localeCompare(b.name));
   const dishes: StoreDish[] = items.map((i) => ({ id: i.id, name: i.name, price: Number(i.price), category: i.category.name, vegType: i.vegType, imageId: i.imageId }));
   const preorderOk = s.onlinePreorder && feats.includes("preorders");
-  const payUpi = s.onlinePayUpi && !!(s.upiId || s.qrImageId); // UPI needs a UPI ID or QR in Settings
+  const gateway = activeGateway(s);
+  const payUpi = s.onlinePayUpi && !!(s.upiId || s.qrImageId || gateway); // pay-now needs a UPI ID / QR in Settings, or a payment gateway
   const payCash = s.onlinePayCash;
   return {
     tenant: { id: t.id, code: t.code },
@@ -40,7 +42,7 @@ export async function loadStorefront(codeRaw: string) {
       closedMsg: payUpi || payCash ? s.onlineClosedMsg : "Online ordering isn't available yet. Please call us to order.",
       delivery: s.onlineDelivery, takeaway: s.onlineTakeaway, preorder: preorderOk,
       minOrder: Number(s.onlineMinOrder), deliveryCharge: Number(s.defaultDeliveryCharge), gstRate: Number(s.gstRate),
-      payUpi, payCash,
+      payUpi, payCash, payGateway: !!gateway,
       otp: s.onlineOtp && smsReady(),
       newMax: Number(s.onlineNewMax),
       mealSlots: slots.length ? slots : ["Breakfast", "Lunch", "Evening Snacks", "Dinner"],

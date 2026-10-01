@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requirePage } from "@/lib/auth";
 import { can } from "@/lib/permissions";
@@ -9,6 +9,7 @@ import { qrDataUrl } from "@/lib/bill";
 import { fmtDate, fmtDateTime, fmtTime, inr, todayIST } from "@/lib/format";
 import { billCounts, type OnlineLine } from "@/lib/online";
 import { smsReady } from "@/lib/sms";
+import { activeGateway, checkOnlineLink, GATEWAY_LABEL, type Gateway } from "@/lib/gateway";
 import { Badge, Card, Empty, PageHeader } from "@/components/ui";
 import { PushToggle } from "@/components/pwa";
 import { pushPublicKey, pushReady } from "@/lib/push";
@@ -22,6 +23,9 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
   const show = (await searchParams).show ?? "new";
   const T = u.tenantId;
   const since = new Date(Date.now() - 36 * 3600e3);
+  // orders waiting for an online payment: ask the gateway (in case its webhook didn't reach us)
+  const waiting = await db.query.onlineOrders.findMany({ where: and(eq(schema.onlineOrders.tenantId, T), eq(schema.onlineOrders.status, "NEW"), ne(schema.onlineOrders.payLinkId, ""), eq(schema.onlineOrders.paidOnline, 0)), columns: { id: true }, limit: 10 });
+  if (waiting.length) await Promise.all(waiting.map((w) => checkOnlineLink(T, w.id).catch((e) => console.error("check online link", e))));
   const [s, newOnes, done, types] = await Promise.all([
     db.query.settings.findFirst({ where: eq(schema.settings.tenantId, T) }),
     db.query.onlineOrders.findMany({ where: and(eq(schema.onlineOrders.tenantId, T), inArray(schema.onlineOrders.status, ["NEW", "ACCEPTING"])), orderBy: [desc(schema.onlineOrders.createdAt)] }),
@@ -50,7 +54,7 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader title="Online Orders" subtitle="Orders customers place from your online menu. Accept to turn them into bills." actions={<><OpenSwitch open={!!s?.onlineOpen} /><LiveOrders newCount={newOnes.length} /></>} />
-      {!(s?.onlinePayCash || (s?.onlinePayUpi && (s?.upiId || s?.qrImageId))) && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800"><b>Customers can&apos;t order yet:</b> no way to pay is available. Add your UPI ID or payment QR in <Link className="underline" href="/settings">Settings</Link>, or allow cash in the online ordering settings below.</div>}
+      {!(s?.onlinePayCash || (s?.onlinePayUpi && (s?.upiId || s?.qrImageId || activeGateway(s)))) && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800"><b>Customers can&apos;t order yet:</b> no way to pay is available. Add your UPI ID or payment QR in <Link className="underline" href="/settings">Settings</Link>, or allow cash in the online ordering settings below.</div>}
       {pushReady() ? <div className="card !py-2.5"><PushToggle publicKey={pushPublicKey()} save={savePushSubscriptionAction} remove={removePushSubscriptionAction} test={testPushAction} /></div>
         : <p className="text-xs text-muted">Phone notifications for new orders need two server keys (VAPID) - see the setup guide.</p>}
       <div className="flex flex-wrap gap-2">{tab("new", `New (${newOnes.length})`)}{tab("accepted", "Accepted · last 36 h")}{tab("rejected", "Rejected · last 36 h")}</div>
@@ -68,7 +72,9 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
                   : (counts.get(o.customerId ?? 0) ?? 0) > (o.status === "ACCEPTED" ? 1 : 0)
                     ? <Badge tone="green">✓ Regular · {counts.get(o.customerId!)} bills</Badge>
                     : <Badge tone="amber">🆕 New number</Badge>}
-                {o.payMethod === "UPI" ? <Badge tone={o.payProofImageId ? "green" : "gray"}>{o.payProofImageId ? "UPI · 📸 screenshot" : "UPI · no screenshot"}</Badge> : <Badge tone="gray">Pay on delivery/pickup</Badge>}
+                {Number(o.paidOnline) > 0 ? <Badge tone="green">💳 Paid online {inr(Number(o.paidOnline))}{o.payLinkProvider ? ` · ${GATEWAY_LABEL[o.payLinkProvider as Gateway] ?? o.payLinkProvider}` : ""}</Badge>
+                  : o.payMethod === "UPI" && o.payLinkId ? <Badge tone="amber">💳 Online payment not done yet</Badge>
+                  : o.payMethod === "UPI" ? <Badge tone={o.payProofImageId ? "green" : "gray"}>{o.payProofImageId ? "UPI · 📸 screenshot" : "UPI · no screenshot"}</Badge> : <Badge tone="gray">Pay on delivery/pickup</Badge>}
               </span>}>
                 <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                   <div className="space-y-1 text-sm">
@@ -87,7 +93,7 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
                     <span><b>Payment screenshot</b><br /><span className="text-muted">Tap to open. Match the amount in your UPI app before accepting.</span></span>
                   </a>
                 )}
-                {o.status === "NEW" && <div className="mt-3 border-t border-line pt-3"><OnlineOrderActions id={o.id} payMethod={o.payMethod} canBlock={!!o.customerId} /></div>}
+                {o.status === "NEW" && <div className="mt-3 border-t border-line pt-3"><OnlineOrderActions id={o.id} payMethod={o.payMethod} canBlock={!!o.customerId} paidOnline={Number(o.paidOnline)} /></div>}
                 {o.status === "REJECTED" && o.customerId && <div className="mt-2"><BlockButton customerId={o.customerId} blocked={blockedIds.has(o.customerId)} /></div>}
                 {o.status === "ACCEPTING" && <p className="mt-2 text-sm text-muted">Being accepted…</p>}
               </Card>

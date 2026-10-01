@@ -10,7 +10,8 @@ import { lookupValues } from "@/lib/options";
 import { fmtDate, fmtDateTime, fmtTime, inr, inr2, todayIST } from "@/lib/format";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { SharePdfButton } from "@/components/share-pdf";
-import { DeletePaymentBtn, PaymentForm, CancelPanel, FulfilButtons, PayLinkPanel } from "@/components/order-actions";
+import { DeletePaymentBtn, PaymentForm, CancelPanel, FulfilButtons, PayLinkPanel, CollectQr } from "@/components/order-actions";
+import { upiForOnline } from "@/lib/online";
 
 export default async function OrderDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ saved?: string }> }) {
   const u = await requirePage("orders");
@@ -140,6 +141,13 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             ))}
           </ul>
         ) : <p className="mb-3 text-sm text-muted">No payment yet.</p>}
+        {o.status === "ACTIVE" && setting && (() => {
+          const gw = u.features.includes("paymentGateways") ? activeGateway(setting) : "";
+          const upi = upiForOnline(setting, st.due, `Bill ${o.billNo}`);
+          if (!gw && !upi) return null;
+          return <div className="mb-3"><CollectQr orderId={o.id} due={st.due} gateway={gw ? GATEWAY_LABEL[gw as Gateway] : ""} upiText={upi?.kind === "upi" ? upi.text : ""} qrImage={upi?.kind === "image" ? `/img/${upi.imageId}` : ""}
+            upiMode={modes.find((m) => /upi/i.test(m)) ?? "UPI"} today={todayIST()} restaurant={setting.name} billNo={o.billNo} /></div>;
+        })()}
         {o.status === "ACTIVE" && st.due > 0 && <PaymentForm orderId={o.id} due={st.due} modes={modes} today={todayIST()} />}
         {o.status === "ACTIVE" && setting && u.features.includes("paymentGateways") && activeGateway(setting) && (st.due > 0 || o.payLinkId) && (
           <div className="mt-3"><PayLinkPanel orderId={o.id} link={o.payLinkShort} linkStatus={o.payLinkStatus} due={st.due} phone={o.customer?.phone ?? ""} restaurant={setting.name} billNo={o.billNo} via={GATEWAY_LABEL[activeGateway(setting) as Gateway]} /></div>

@@ -9,5 +9,5 @@ export const isRestaurantPath = (seg: string) => /^[a-z0-9][a-z0-9-]{1,30}$/.tes
 
 /** Public customer pages: /<code>/order, /<code>/order/<token>, /<code>/order/<token>/bill, and policy pages /<code>/info/<page> */
 export const isPublicOrderPath = (segs: string[]) =>
-  (segs.length >= 2 && segs.length <= 4 && isRestaurantPath(segs[0]) && segs[1] === "order" && (segs.length < 4 || segs[3] === "bill")) ||
+  (segs.length >= 2 && segs.length <= 4 && isRestaurantPath(segs[0]) && segs[1] === "order" && (segs.length < 4 || segs[3] === "bill" || segs[3] === "pay")) ||
   (segs.length === 3 && isRestaurantPath(segs[0]) && segs[1] === "info");

@@ -122,6 +122,74 @@ async function orderDue(tenantId: number, orderId: number) {
 const OPEN: Record<string, string[]> = { razorpay: ["created"], instamojo: ["Pending", "Sent"], cashfree: ["ACTIVE"] };
 const isOpen = (provider: string, status: string) => (OPEN[provider] ?? []).includes(status);
 
+export type LinkReq = { amount: number; purpose: string; ref: string; customerName?: string; phone?: string; email?: string; origin?: string; returnUrl?: string; notes?: Record<string, string> };
+export type Link = { provider: Gateway; id: string; url: string; status: string };
+
+/** Make a payment link with the restaurant's gateway (used for bills and for customers' online orders) */
+export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<Link> {
+  const s = await settingsOf(tenantId);
+  const g = activeGateway(s);
+  if (!g) throw new Error("No payment gateway is set up. Owner: Settings → Online payments.");
+  const phone = (r.phone ?? "").replace(/\D/g, "").slice(-10);
+  const https = /^https:\/\//.test(r.origin ?? "");
+  const ret = r.returnUrl && /^https?:\/\//.test(r.returnUrl) ? r.returnUrl : "";
+  let id = "", url = "", status = "";
+  if (g === "razorpay") {
+    const link = await rzp(s)("/payment_links", {
+      method: "POST",
+      body: {
+        amount: Math.round(r.amount * 100), currency: "INR", accept_partial: false,
+        description: r.purpose.slice(0, 250), reference_id: `${r.ref}-${Date.now().toString(36)}`.slice(0, 40),
+        customer: r.customerName || phone ? { ...(r.customerName ? { name: r.customerName } : {}), ...(phone.length === 10 ? { contact: "+91" + phone } : {}), ...(r.email ? { email: r.email } : {}) } : undefined,
+        notify: { sms: false, email: false }, reminder_enable: false,
+        notes: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
+        ...(ret ? { callback_url: ret, callback_method: "get" } : {}),
+      },
+    });
+    id = link.id; url = link.short_url; status = link.status;
+  } else if (g === "instamojo") {
+    const call = await instamojo(s);
+    const q = await call("/payment_requests/", {
+      amount: r.amount.toFixed(2), purpose: r.purpose.slice(0, 30), allow_repeated_payments: "false", send_email: "false", send_sms: "false",
+      ...(r.customerName ? { buyer_name: r.customerName.slice(0, 100) } : {}), ...(phone.length === 10 ? { phone } : {}),
+      ...(https ? { webhook: `${r.origin}/api/pay/instamojo` } : {}), ...(ret ? { redirect_url: ret } : {}),
+    });
+    id = q.id; url = q.longurl; status = q.status || "Pending";
+  } else {
+    const linkId = `t${tenantId}${r.ref}-${Date.now().toString(36)}`.replace(/[^\w-]/g, "").slice(0, 50);
+    const own = (s.phone ?? "").replace(/\D/g, "").slice(-10);
+    const meta: Record<string, string> = {};
+    if (https) meta.notify_url = `${r.origin}/api/pay/cashfree`;
+    if (ret) meta.return_url = ret;
+    const q = await cashfree(s)("/links", {
+      link_id: linkId, link_amount: r.amount, link_currency: "INR", link_purpose: r.purpose.slice(0, 500),
+      customer_details: { customer_phone: phone.length === 10 ? phone : own.length === 10 ? own : "9999999999", ...(r.customerName ? { customer_name: r.customerName } : {}) },
+      link_partial_payments: false, link_notify: { send_sms: false, send_email: false },
+      link_notes: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
+      ...(Object.keys(meta).length ? { link_meta: meta } : {}),
+    });
+    id = q.link_id || linkId; url = q.link_url; status = q.link_status || "ACTIVE";
+  }
+  if (!id || !url) throw new Error(`${GATEWAY_LABEL[g]}: no link came back. Check the keys.`);
+  return { provider: g, id, url, status };
+}
+
+/** Ask the gateway how much was paid on a link */
+export async function linkStatus(tenantId: number, provider: Gateway, id: string, expected: number): Promise<{ status: string; paid: number; done: boolean }> {
+  const s = await settingsOf(tenantId);
+  if (provider === "razorpay") {
+    const l = await rzp(s)(`/payment_links/${id}`);
+    return { status: String(l.status), paid: Number(l.amount_paid ?? 0) / 100, done: l.status === "paid" };
+  }
+  if (provider === "instamojo") {
+    const q = await (await instamojo(s))(`/payment_requests/${id}/`);
+    const st = String(q.status ?? "");
+    return { status: st, paid: st === "Completed" ? Number(q.amount ?? expected) : 0, done: st === "Completed" };
+  }
+  const q = await cashfree(s)(`/links/${encodeURIComponent(id)}`);
+  return { status: String(q.link_status ?? ""), paid: Number(q.link_amount_paid ?? 0), done: q.link_status === "PAID" };
+}
+
 /** Create (or reuse) a payment link for what is due on this order, with the restaurant's chosen gateway */
 export async function createPaymentLink(tenantId: number, orderId: number, origin = "") {
   const s = await settingsOf(tenantId);
@@ -135,46 +203,13 @@ export async function createPaymentLink(tenantId: number, orderId: number, origi
   if (o.payLinkId && o.payLinkProvider === "razorpay" && o.payLinkStatus === "created" && s.razorpayKeyId && s.razorpayKeySecret) {
     await rzp(s)(`/payment_links/${o.payLinkId}/cancel`, { method: "POST" }).catch(() => {});
   }
-  const phone = (o.customer?.phone ?? "").replace(/\D/g, "").slice(-10);
-  const purpose = `${s.name} - Bill ${o.billNo}`.slice(0, 30);
-  const https = /^https:\/\//.test(origin);
-  let id = "", url = "", status = "";
-  if (g === "razorpay") {
-    const link = await rzp(s)("/payment_links", {
-      method: "POST",
-      body: {
-        amount: Math.round(due * 100), currency: "INR", accept_partial: false,
-        description: `${s.name} - Bill ${o.billNo}`.slice(0, 250), reference_id: `${o.billNo}-${Date.now().toString(36)}`.slice(0, 40),
-        customer: o.customer ? { name: o.customer.name, ...(phone.length === 10 ? { contact: "+91" + phone } : {}), ...(o.customer.email ? { email: o.customer.email } : {}) } : undefined,
-        notify: { sms: false, email: false }, reminder_enable: false,
-        notes: { tenant_id: String(tenantId), order_id: String(o.id), bill_no: o.billNo },
-      },
-    });
-    id = link.id; url = link.short_url; status = link.status;
-  } else if (g === "instamojo") {
-    const call = await instamojo(s);
-    const r = await call("/payment_requests/", {
-      amount: due.toFixed(2), purpose, allow_repeated_payments: "false", send_email: "false", send_sms: "false",
-      ...(o.customer?.name ? { buyer_name: o.customer.name.slice(0, 100) } : {}), ...(phone.length === 10 ? { phone } : {}),
-      ...(https ? { webhook: `${origin}/api/pay/instamojo` } : {}),
-    });
-    id = r.id; url = r.longurl; status = r.status || "Pending";
-  } else {
-    const linkId = `t${tenantId}o${o.id}-${Date.now().toString(36)}`;
-    const own = (s.phone ?? "").replace(/\D/g, "").slice(-10);
-    const r = await cashfree(s)("/links", {
-      link_id: linkId, link_amount: due, link_currency: "INR", link_purpose: `${s.name} - Bill ${o.billNo}`.slice(0, 500),
-      customer_details: { customer_phone: phone.length === 10 ? phone : own.length === 10 ? own : "9999999999", ...(o.customer?.name ? { customer_name: o.customer.name } : {}) },
-      link_partial_payments: false, link_notify: { send_sms: false, send_email: false },
-      link_notes: { tenant_id: String(tenantId), order_id: String(o.id), bill_no: o.billNo },
-      ...(https ? { link_meta: { notify_url: `${origin}/api/pay/cashfree` } } : {}),
-    });
-    id = r.link_id || linkId; url = r.link_url; status = r.link_status || "ACTIVE";
-  }
-  if (!id || !url) throw new Error(`${GATEWAY_LABEL[g]}: no link came back. Check the keys.`);
-  await db.update(schema.orders).set({ payLinkId: id, payLinkShort: url, payLinkAmount: due, payLinkStatus: status, payLinkProvider: g })
+  const link = await createGatewayLink(tenantId, {
+    amount: due, purpose: `${s.name} - Bill ${o.billNo}`, ref: `o${o.id}`, customerName: o.customer?.name, phone: o.customer?.phone ?? "", email: o.customer?.email ?? "",
+    origin, notes: { order_id: String(o.id), bill_no: o.billNo },
+  });
+  await db.update(schema.orders).set({ payLinkId: link.id, payLinkShort: link.url, payLinkAmount: due, payLinkStatus: link.status, payLinkProvider: link.provider })
     .where(and(eq(schema.orders.id, o.id), eq(schema.orders.tenantId, tenantId)));
-  return url;
+  return link.url;
 }
 
 /** Record whatever was paid on a link (safe to call many times) - amount in rupees */
@@ -199,30 +234,79 @@ export const recordLinkPayment = (tenantId: number, orderId: number, linkId: str
 
 /** Ask the gateway whether the link was paid, record it, and return a simple status */
 export async function checkPaymentLink(tenantId: number, orderId: number): Promise<string> {
-  const s = await settingsOf(tenantId);
   const { o } = await orderDue(tenantId, orderId);
   if (!o.payLinkId) throw new Error("No payment link on this bill yet.");
   const provider = (o.payLinkProvider || "razorpay") as Gateway;
-  if (provider === "razorpay") {
-    const link = await rzp(s)(`/payment_links/${o.payLinkId}`);
-    await recordLinkPaid(tenantId, orderId, o.payLinkId, Number(link.amount_paid ?? 0) / 100, String(link.status));
-    return String(link.status);
-  }
-  if (provider === "instamojo") {
-    const r = await (await instamojo(s))(`/payment_requests/${o.payLinkId}/`);
-    const st = String(r.status ?? "");
-    const paid = st === "Completed" ? Number(r.amount ?? o.payLinkAmount ?? 0) : 0;
-    await recordLinkPaid(tenantId, orderId, o.payLinkId, paid, st);
-    return st === "Completed" ? "paid" : st.toLowerCase() || "pending";
-  }
-  const r = await cashfree(s)(`/links/${encodeURIComponent(o.payLinkId)}`);
-  const st = String(r.link_status ?? "");
-  await recordLinkPaid(tenantId, orderId, o.payLinkId, Number(r.link_amount_paid ?? 0), st);
-  return st === "PAID" ? "paid" : st.toLowerCase();
+  const r = await linkStatus(tenantId, provider, o.payLinkId, Number(o.payLinkAmount ?? 0));
+  await recordLinkPaid(tenantId, orderId, o.payLinkId, r.paid, r.status);
+  return r.done ? "paid" : r.status.toLowerCase() || "pending";
 }
 
 export function verifyWebhook(raw: string, signature: string, secret: string) {
   const exp = crypto.createHmac("sha256", secret).update(raw).digest("hex");
   const a = Buffer.from(exp), b = Buffer.from(signature || "");
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// ---------------- customers' online orders (paid before the restaurant accepts) ----------------
+/** Payment link for an online order; the customer is sent there straight after ordering */
+export async function createOnlineOrderLink(tenantId: number, onlineOrderId: number, origin: string, code: string) {
+  const o = await db.query.onlineOrders.findFirst({ where: and(eq(schema.onlineOrders.id, onlineOrderId), eq(schema.onlineOrders.tenantId, tenantId)) });
+  if (!o) throw new Error("Order not found.");
+  const s = await settingsOf(tenantId);
+  const g = activeGateway(s);
+  if (!g) throw new Error("No payment gateway is set up.");
+  const due = round2(Number(o.estTotal) - Number(o.paidOnline));
+  if (due <= 0.5) throw new Error("Already paid.");
+  if (o.payLinkId && o.payLinkProvider === g && isOpen(g, o.payLinkStatus)) return o.payLinkUrl;
+  const link = await createGatewayLink(tenantId, {
+    amount: due, purpose: `${s.name} - Online order ${o.id}`, ref: `w${o.id}`, customerName: o.name, phone: o.phone,
+    origin, returnUrl: /^https?:\/\//.test(origin) ? `${origin}/${code}/order/${o.token}?paid=1` : "", notes: { online_order_id: String(o.id) },
+  });
+  await db.update(schema.onlineOrders).set({ payLinkId: link.id, payLinkUrl: link.url, payLinkStatus: link.status, payLinkProvider: link.provider })
+    .where(eq(schema.onlineOrders.id, o.id));
+  return link.url;
+}
+
+/** Record what the gateway says was paid on an online order's link; also onto its bill once accepted (safe to repeat) */
+export async function recordOnlinePaid(tenantId: number, onlineOrderId: number, linkId: string, amountPaid: number, status: string) {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${tenantId}, ${-onlineOrderId})`);
+    const w = await tx.query.onlineOrders.findFirst({ where: and(eq(schema.onlineOrders.id, onlineOrderId), eq(schema.onlineOrders.tenantId, tenantId)) });
+    if (!w || w.payLinkId !== linkId) return;
+    const paid = round2(Math.max(Number(w.paidOnline), amountPaid));
+    await tx.update(schema.onlineOrders).set({ paidOnline: paid, payLinkStatus: status }).where(eq(schema.onlineOrders.id, w.id));
+    if (w.orderId && paid > 0) {
+      const o = await tx.query.orders.findFirst({ where: eq(schema.orders.id, w.orderId) });
+      const [{ got }] = await tx.select({ got: sql<number>`coalesce(sum(${schema.payments.amount}),0)` }).from(schema.payments)
+        .where(and(eq(schema.payments.tenantId, tenantId), eq(schema.payments.orderId, w.orderId), eq(schema.payments.ref, linkId)));
+      const add = round2(paid - Number(got));
+      if (o && add > 0) await tx.insert(schema.payments).values({ tenantId, orderId: o.id, customerId: o.customerId, amount: add, mode: `Online (${GATEWAY_LABEL[(w.payLinkProvider || "razorpay") as Gateway]})`, date: todayIST(), ref: linkId, notes: "Paid online with the order" });
+    }
+  });
+}
+
+/** Ask the gateway about an online order's link (customer came back, or the page refreshed) */
+export async function checkOnlineLink(tenantId: number, onlineOrderId: number) {
+  const w = await db.query.onlineOrders.findFirst({ where: and(eq(schema.onlineOrders.id, onlineOrderId), eq(schema.onlineOrders.tenantId, tenantId)) });
+  if (!w?.payLinkId) return null;
+  const r = await linkStatus(tenantId, (w.payLinkProvider || "razorpay") as Gateway, w.payLinkId, Number(w.estTotal));
+  if (r.paid > 0 || r.status !== w.payLinkStatus) await recordOnlinePaid(tenantId, w.id, w.payLinkId, r.paid, r.status);
+  return r;
+}
+
+/** Webhooks: find which bill or online order a link belongs to and record the payment */
+export async function recordAnyLink(provider: Gateway, linkId: string, amountPaid: number, status: string, tenantHint?: number) {
+  const o = await db.query.orders.findFirst({ where: and(eq(schema.orders.payLinkId, linkId), eq(schema.orders.payLinkProvider, provider)) });
+  if (o && (!tenantHint || o.tenantId === tenantHint)) { await recordLinkPaid(o.tenantId, o.id, linkId, amountPaid, status); return true; }
+  const w = await db.query.onlineOrders.findFirst({ where: and(eq(schema.onlineOrders.payLinkId, linkId), eq(schema.onlineOrders.payLinkProvider, provider)) });
+  if (w && (!tenantHint || w.tenantId === tenantHint)) { await recordOnlinePaid(w.tenantId, w.id, linkId, amountPaid, status); return true; }
+  return false;
+}
+/** Which restaurant a link belongs to (webhooks check the signature with that restaurant's secret) */
+export async function tenantOfLink(provider: Gateway, linkId: string) {
+  const o = await db.query.orders.findFirst({ where: and(eq(schema.orders.payLinkId, linkId), eq(schema.orders.payLinkProvider, provider)), columns: { tenantId: true } });
+  if (o) return o.tenantId;
+  const w = await db.query.onlineOrders.findFirst({ where: and(eq(schema.onlineOrders.payLinkId, linkId), eq(schema.onlineOrders.payLinkProvider, provider)), columns: { tenantId: true } });
+  return w?.tenantId ?? null;
 }

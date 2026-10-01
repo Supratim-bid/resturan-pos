@@ -160,7 +160,9 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
           <section className="card space-y-2">
             <h2 className="font-bold">Payment</h2>
             {config.payUpi && <label className="flex items-start gap-2 text-sm"><input type="radio" name="pay" className="mt-1 accent-[var(--color-brand)]" checked={pay === "UPI"} onChange={() => setPay("UPI")} />
-              <span><b>Pay now by UPI</b><span className="block text-xs text-muted">After placing the order you&apos;ll see the UPI QR / button. You can attach a payment screenshot (optional). The restaurant confirms after checking the payment.</span></span></label>}
+              {config.payGateway
+                ? <span><b>Pay online now</b><span className="block text-xs text-muted">UPI, card, net banking or wallet. After placing the order you go straight to the secure payment page.</span></span>
+                : <span><b>Pay now by UPI</b><span className="block text-xs text-muted">After placing the order you&apos;ll see the UPI QR / button. You can attach a payment screenshot (optional). The restaurant confirms after checking the payment.</span></span>}</label>}
             {config.payCash && <label className="flex items-start gap-2 text-sm"><input type="radio" name="pay" className="mt-1 accent-[var(--color-brand)]" checked={pay === "COD"} onChange={() => setPay("COD")} />
               <span><b>Cash {kind === "DELIVERY" ? "on delivery" : "at pickup"}</b><span className="block text-xs text-muted">Pay when you get your food</span></span></label>}
             {config.newMax > 0 && <p className="text-xs text-muted">First orders from a new number can be up to ₹{config.newMax}.</p>}

@@ -1,5 +1,6 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import QRCode from "qrcode";
 import { useRouter } from "next/navigation";
 import { addPaymentAction, deletePaymentAction, setStatusAction, requestCancelAction, decideCancelAction, createPayLinkAction, checkPayLinkAction, setFulfilAction, settleCancelledMoneyAction } from "@/app/actions/orders";
 
@@ -156,6 +157,106 @@ export function PayLinkPanel({ orderId, link, linkStatus, due, phone, restaurant
       </div>
       {msg && <p className={`text-xs ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</p>}
     </div>
+  );
+}
+
+/** Staff shows a QR on their phone / counter screen for the customer to scan and pay.
+ *  - "Card / UPI link" (when a gateway is set up): the gateway's payment page; paid is detected automatically.
+ *  - "Our UPI QR": any UPI app pays straight to the restaurant; staff tap "Received" after checking. */
+export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upiMode, today, restaurant, billNo }: {
+  orderId: number; due: number; gateway: string; upiText: string; qrImage: string; upiMode: string; today: string; restaurant: string; billNo: string;
+}) {
+  const [open, setOpen] = useState(false);
+  // amount + UPI QR frozen while the QR is showing (the bill page updates underneath when it's paid)
+  const [due, setDue] = useState(dueNow);
+  const [snap, setSnap] = useState({ upiText, qrImage });
+  const [tab, setTab] = useState<"link" | "upi">(gateway ? "link" : "upi");
+  const [img, setImg] = useState("");
+  const [url, setUrl] = useState("");
+  const [state, setState] = useState<"" | "loading" | "waiting" | "paid" | "error">("");
+  const [err, setErr] = useState("");
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const alive = useRef(false);
+
+  // make (or reuse) the gateway link and draw its QR
+  useEffect(() => {
+    if (!open) return;
+    alive.current = true;
+    setErr(""); setImg("");
+    if (tab === "upi") {
+      if (snap.upiText) QRCode.toDataURL(snap.upiText, { width: 520, margin: 1 }).then(setImg);
+      else if (snap.qrImage) setImg(snap.qrImage);
+      setState("");
+      return () => { alive.current = false; };
+    }
+    setState("loading");
+    createPayLinkAction(orderId).then(async (r) => {
+      if (!alive.current) return;
+      if (!r.ok) { setState("error"); setErr(r.error); return; }
+      setUrl(r.data!); setImg(await QRCode.toDataURL(r.data!, { width: 520, margin: 1 })); setState("waiting");
+    });
+    return () => { alive.current = false; };
+  }, [open, tab, orderId, snap]);
+
+  // watch for the payment every 4 seconds
+  useEffect(() => {
+    if (!open || tab !== "link" || state !== "waiting") return;
+    const t = setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
+      const r = await checkPayLinkAction(orderId);
+      if (r.ok && r.data === "paid" && alive.current) setState("paid"); // page refreshes when the modal is closed
+    }, 4000);
+    return () => clearInterval(t);
+  }, [open, tab, state, orderId]);
+
+  if (dueNow <= 0 && !open) return null;
+  const waText = `${restaurant} - Bill ${billNo}\nAmount due: ₹${due}\nPay here: ${url}`;
+  return (
+    <>
+      <button type="button" className="btn-primary btn-sm" onClick={() => { setDue(dueNow); setSnap({ upiText, qrImage }); setState(""); setOpen(true); }}>📱 Show QR to scan · ₹{dueNow}</button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3" role="dialog" aria-label="Scan to pay">
+          <div className="w-full max-w-sm space-y-3 rounded-2xl bg-white p-4 text-center">
+            <div className="flex items-center justify-between">
+              <b>Bill {billNo}</b>
+              <button type="button" className="btn-ghost btn-sm" onClick={() => { setOpen(false); setState(""); router.refresh(); }}>Close</button>
+            </div>
+            {gateway && (upiText || qrImage) && (
+              <div className="inline-flex overflow-hidden rounded-full border border-line text-xs font-semibold">
+                <button type="button" className={`px-3 py-1.5 ${tab === "link" ? "bg-brand text-white" : ""}`} onClick={() => setTab("link")}>{gateway} (auto-check)</button>
+                <button type="button" className={`px-3 py-1.5 ${tab === "upi" ? "bg-brand text-white" : ""}`} onClick={() => setTab("upi")}>Our UPI QR</button>
+              </div>
+            )}
+            <div className="text-3xl font-bold tabular-nums">₹{due}</div>
+            {state === "paid" ? (
+              <div className="rounded-xl bg-emerald-50 py-10 text-emerald-800"><div className="text-5xl">✓</div><div className="mt-2 text-lg font-bold">Paid - recorded on the bill</div></div>
+            ) : state === "loading" ? <p className="py-24 text-sm text-muted">Getting the payment QR…</p>
+              : state === "error" ? <p className="rounded-lg bg-red-50 px-3 py-6 text-sm text-red-700">{err}</p>
+              : img ? <img src={img} alt="Scan to pay" className="mx-auto aspect-square w-full max-w-[300px] object-contain" /> : <p className="py-10 text-sm text-muted">No UPI ID or QR saved in Settings.</p>}
+            {tab === "link" && state === "waiting" && (
+              <>
+                <p className="text-xs text-muted">Customer scans with the <b>phone camera</b> (or Google Lens) and pays by UPI, card or net banking. <span className="text-emerald-700">This screen turns green by itself when paid.</span></p>
+                <div className="flex justify-center gap-2">
+                  <a className="btn-ghost btn-sm" href={`https://wa.me/?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer">Send on WhatsApp</a>
+                  <button type="button" className="btn-ghost btn-sm" onClick={() => navigator.clipboard?.writeText(url)}>Copy link</button>
+                </div>
+              </>
+            )}
+            {tab === "upi" && img && state !== "paid" && (
+              <>
+                <p className="text-xs text-muted">Customer scans with <b>any UPI app</b> (GPay, PhonePe, Paytm, BHIM){snap.upiText ? " - the amount is filled in" : " and types the amount"}. Check your UPI app, then:</p>
+                <button type="button" className="btn-primary w-full" disabled={pending} onClick={() => start(async () => {
+                  setErr(""); const r = await addPaymentAction(orderId, due, upiMode, today);
+                  if (!r.ok) setErr(r.error); else setState("paid");
+                })}>{pending ? "Saving…" : `✓ Received ₹${due} by UPI`}</button>
+                {err && <p className="text-xs text-red-700">{err}</p>}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

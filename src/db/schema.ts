@@ -427,7 +427,13 @@ export const onlineOrders = pgTable("online_orders", {
   decidedById: integer("decided_by_id"),
   decidedAt: timestamp("decided_at"),
   ip: text("ip").notNull().default(""),
-  payProofImageId: integer("pay_proof_image_id"),             // payment screenshot the customer attached (optional, staff-only)
+  payProofImageId: integer("pay_proof_image_id"),
+  // paying online through the restaurant's gateway (Razorpay / Instamojo / Cashfree) before the order is accepted
+  payLinkId: text("pay_link_id").notNull().default(""),
+  payLinkUrl: text("pay_link_url").notNull().default(""),
+  payLinkStatus: text("pay_link_status").notNull().default(""),
+  payLinkProvider: text("pay_link_provider").notNull().default(""),
+  paidOnline: money("paid_online").notNull().default(0),          // amount the gateway confirmed             // payment screenshot the customer attached (optional, staff-only)
   device: text("device").notNull().default(""),               // hash of the customer's browser id (for "My orders")
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("online_orders_tenant_status").on(t.tenantId, t.status, t.createdAt)]);

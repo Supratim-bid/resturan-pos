@@ -45,7 +45,7 @@ export function OpenSwitch({ open }: { open: boolean }) {
   );
 }
 
-export function OnlineOrderActions({ id, payMethod, canBlock = false }: { id: number; payMethod: string; canBlock?: boolean }) {
+export function OnlineOrderActions({ id, payMethod, canBlock = false, paidOnline = 0 }: { id: number; payMethod: string; canBlock?: boolean; paidOnline?: number }) {
   const [mode, setMode] = useState<"" | "reject">("");
   const [block, setBlock] = useState(false);
   const [paid, setPaid] = useState(false);
@@ -59,7 +59,9 @@ export function OnlineOrderActions({ id, payMethod, canBlock = false }: { id: nu
   });
   return (
     <div className="space-y-2">
-      {payMethod === "UPI" && mode === "" && (
+      {paidOnline > 0 && mode === "" && <p className="text-sm text-emerald-700">✓ Paid online - it is recorded on the bill automatically when you accept.</p>}
+      {paidOnline > 0 && mode === "reject" && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">This customer already paid online. After rejecting, refund them from your payment gateway dashboard (Cashfree / Instamojo / Razorpay → the payment → Refund).</p>}
+      {payMethod === "UPI" && paidOnline <= 0 && mode === "" && (
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-[var(--color-brand)]" checked={paid} onChange={(e) => setPaid(e.target.checked)} />
           <span><b>Payment received</b> - I checked our UPI app / bank (records the payment on the bill)</span></label>
       )}
