@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requirePage } from "@/lib/auth";
-import { kotsForDay } from "@/lib/kot";
+import { deliveryAddress, kotsForDay } from "@/lib/kot";
 import { addDays, fmtDate, todayIST } from "@/lib/format";
 import { Empty, PageHeader } from "@/components/ui";
 import { DismissButton, KotButtons, KotDatePicker, KotLive } from "@/components/kot-screen";
@@ -94,6 +94,7 @@ export default async function KotScreen({ searchParams }: { searchParams: Promis
                     <div className="text-2xl font-extrabold">KOT #{o.kotNo}</div>
                     <div className="text-sm font-semibold">{o.orderType}{o.tableNo ? ` · Table ${o.tableNo}` : ""}{o.customer?.name ? ` · ${o.customer.name}` : ""}</div>
                     <div className="text-xs text-muted">{o.billNo}{o.mealSlot ? ` · ${o.mealSlot}` : ""}</div>
+                    {deliveryAddress(o) && <div className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-sm font-semibold text-amber-900">📍 {deliveryAddress(o)}{o.customer?.phone ? ` · ${o.customer.phone}` : ""}</div>}
                   </div>
                   <div className="text-right">
                     <div className={`rounded-full px-2 py-0.5 text-xs font-bold ${cancelled ? "bg-stone-200" : o.kotStatus === "NEW" ? "bg-red-100 text-red-800" : o.kotStatus === "PREPARING" ? "bg-amber-100 text-amber-900" : o.kotStatus === "READY" ? "bg-emerald-100 text-emerald-800" : "bg-stone-100"}`}>{cancelled ? "Cancelled" : LABEL[o.kotStatus]}</div>

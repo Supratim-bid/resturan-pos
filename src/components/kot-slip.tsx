@@ -3,7 +3,7 @@ import { fmtDate, fmtTime } from "@/lib/format";
 type Item = { id: number; name: string; qty: string | number };
 type Props = {
   restaurant: string; kotNo: number; billNo: string; date: string; at: Date | null; orderType: string; tableNo: string;
-  customer?: string | null; notes: string; items: Item[]; updated: boolean; cancelled: boolean;
+  customer?: string | null; address?: string; phone?: string; notes: string; items: Item[]; updated: boolean; cancelled: boolean;
   isPreorder?: boolean; mealSlot?: string; slotTime?: string; widthClass: string; pageBreak?: boolean;
 };
 
@@ -18,7 +18,8 @@ export function KotSlip(p: Props) {
       {p.updated && !p.cancelled && <div className="my-1 border-2 border-black text-center font-extrabold">UPDATED ORDER</div>}
       <div className="flex justify-between gap-2"><span>{fmtDate(p.date)}</span><span>{time}</span></div>
       <div className="flex justify-between gap-2 font-bold"><span>{p.orderType}{p.tableNo ? ` · Table ${p.tableNo}` : ""}</span><span>{p.billNo}</span></div>
-      {p.customer && <div>{p.customer}</div>}
+      {p.customer && <div>{p.customer}{p.phone ? ` · ${p.phone}` : ""}</div>}
+      {p.address && <div className="my-0.5 border border-black px-1 py-0.5 font-bold">📍 {p.address}</div>}
       {p.isPreorder && <div className="font-bold">PRE-ORDER{p.mealSlot ? ` · ${p.mealSlot}` : ""}{p.slotTime ? ` · ${fmtTime(p.slotTime)}` : ""}</div>}
       <div className="mt-1 border-y border-dashed border-black py-1">
         {p.items.map((i) => (

@@ -212,7 +212,7 @@ export async function saveOrder(tenantId: number, input: OrderInput, userId: num
       await tx.insert(schema.payments).values({
         // money is received today (an advance, for pre-orders)
         tenantId, date: input.isPreorder && input.date > todayIST() ? todayIST() : input.date, orderId, customerId: base.customerId,
-        amount: round2(input.payNow.amount), mode: input.payNow.mode, notes: input.isPreorder && input.date > todayIST() ? "Advance for pre-order" : "",
+        amount: round2(input.payNow.amount), mode: input.payNow.mode, notes: input.isPreorder && input.date > todayIST() ? "Advance for pre-order" : "", createdById: userId,
       });
     }
     await syncOrderStock(tx as unknown as typeof db, tenantId, orderId!);
@@ -344,7 +344,7 @@ export function payStatus(total: number, paid: number) {
  * Receive money from a customer: fills their oldest unpaid orders first (FIFO),
  * anything left is kept as advance (payment without order).
  */
-export async function receiveCustomerPayment(tenantId: number, customerId: number, amount: number, mode: string, date: string, notes = "") {
+export async function receiveCustomerPayment(tenantId: number, customerId: number, amount: number, mode: string, date: string, notes = "", userId?: number) {
   const c = await db.query.customers.findFirst({ where: and(eq(schema.customers.id, customerId), eq(schema.customers.tenantId, tenantId)) });
   if (!c) throw new Error("Customer not found.");
   let left = round2(amount);
@@ -359,10 +359,10 @@ export async function receiveCustomerPayment(tenantId: number, customerId: numbe
     const due = round2(Number(o.total) - (paid.get(o.id) ?? 0));
     if (due <= 0) continue;
     const a = Math.min(due, left);
-    rows.push({ tenantId, date, orderId: o.id, customerId, amount: a, mode, notes });
+    rows.push({ tenantId, date, orderId: o.id, customerId, amount: a, mode, notes, createdById: userId });
     left = round2(left - a);
   }
-  if (left > 0) rows.push({ tenantId, date, orderId: null, customerId, amount: left, mode, notes: notes || "Advance" });
+  if (left > 0) rows.push({ tenantId, date, orderId: null, customerId, amount: left, mode, notes: notes || "Advance", createdById: userId });
   if (rows.length) await db.insert(schema.payments).values(rows);
 }
 

@@ -22,8 +22,19 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
   const credit = rows.filter((r) => r.paymentMode === "Credit").reduce((s, r) => s + Number(r.amount), 0);
   const byCat = new Map<string, number>();
   for (const r of rows) byCat.set(r.category, (byCat.get(r.category) ?? 0) + Number(r.amount));
+  // money people paid from their own pocket (not company) and not on credit -> to be reimbursed
+  const reimb = new Map<string, number>();
+  for (const r of rows) {
+    if ((r.paidFrom === "Owner" || r.paidFrom === "Staff") && r.paymentMode !== "Credit") {
+      const who = `${r.paidByName || r.paidFrom} (${r.paidFrom})`;
+      reimb.set(who, (reimb.get(who) ?? 0) + Number(r.amount));
+    }
+  }
+  const reimbTotal = [...reimb.values()].reduce((a, b) => a + b, 0);
+  const paidByLabel = (r: typeof rows[number]) => r.paidFrom === "Company" || !r.paidFrom ? "Company" : `${r.paidByName || r.paidFrom} · ${r.paidFrom}`;
   const data = rows.map((r) => ({
     ...r, paidTo: r.vendor?.name ?? r.staff?.name ?? "", stock: r.ingredient ? `${Number(r.qty)} ${r.ingredient.unit} ${r.ingredient.name}` : "",
+    paidByWhom: paidByLabel(r),
   }));
   return (
     <div>
@@ -33,14 +44,25 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
         <Stat label="On credit (unpaid)" value={inr(credit)} tone={credit ? "amber" : undefined} />
         <Stat label="Entries" value={rows.length} />
       </div>
+      {reimb.size > 0 && (
+        <Card title="To reimburse (paid from own pocket)" className="mb-4">
+          <ul className="grid gap-x-6 text-sm sm:grid-cols-2">
+            {[...reimb].sort((a, b) => b[1] - a[1]).map(([who, v]) => (
+              <li key={who} className="flex justify-between border-b border-line/60 py-1.5"><span>{who}</span><b className="tabular-nums text-amber-700">{inr(v)}</b></li>
+            ))}
+          </ul>
+          <p className="mt-2 text-sm">Total to repay: <b className="text-amber-700">{inr(reimbTotal)}</b> <span className="text-xs text-muted">· record each repayment as a normal payout/expense when you settle it</span></p>
+        </Card>
+      )}
       <CrudManager entity="expenses" title="expense" fields={f} options={opts} rows={data} path="/expenses" addLabel="Expense"
-        searchKeys={["category", "description", "paidTo", "stock", "notes"]}
+        searchKeys={["category", "description", "paidTo", "paidByWhom", "stock", "notes"]}
         columns={[
           { key: "date", label: "Date", kind: "date" },
           { key: "category", label: "Category", primary: true },
           { key: "description", label: "Description" },
           { key: "amount", label: "Amount", kind: "money" },
-          { key: "paymentMode", label: "Paid by", kind: "badge", tones: { Credit: "amber" } },
+          { key: "paymentMode", label: "How paid", kind: "badge", tones: { Credit: "amber" } },
+          { key: "paidByWhom", label: "Paid by" },
           { key: "paidTo", label: "Vendor / staff", hideMobile: true },
           { key: "stock", label: "Added to stock", hideMobile: true },
         ]} />

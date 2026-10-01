@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { loadKot } from "@/lib/kot";
+import { deliveryAddress, loadKot } from "@/lib/kot";
 import { KotSlip, kotWidth } from "@/components/kot-slip";
 import { AutoPrint, PrintNow } from "@/components/kot-screen";
 
@@ -28,7 +28,7 @@ export default async function KotPrint({ params, searchParams }: { params: Promi
         <PrintNow />
       </div>
       <KotSlip restaurant={s.name} kotNo={o.kotNo!} billNo={o.billNo} date={o.date} at={o.kotAt} orderType={o.orderType} tableNo={o.tableNo}
-        customer={o.customer?.name} notes={o.notes} items={o.items} updated={o.kotUpdated} cancelled={o.status === "CANCELLED"}
+        customer={o.customer?.name} address={deliveryAddress(o)} phone={o.customer?.phone ?? ""} notes={o.notes} items={o.items} updated={o.kotUpdated} cancelled={o.status === "CANCELLED"}
         isPreorder={o.isPreorder} mealSlot={o.mealSlot} slotTime={o.slotTime} widthClass={kotWidth(size)} />
     </div>
   );

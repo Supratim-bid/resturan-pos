@@ -126,7 +126,7 @@ export async function addPaymentAction(orderId: number, amount: number, mode: st
     const o = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)) });
     if (!o) throw new Error("Order not found.");
     if (o.status !== "ACTIVE") throw new Error("This bill is cancelled - no payments can be added.");
-    await db.insert(schema.payments).values({ tenantId: u.tenantId, orderId, customerId: o.customerId, amount: round2(amount), mode, date: date || todayIST() });
+    await db.insert(schema.payments).values({ tenantId: u.tenantId, orderId, customerId: o.customerId, amount: round2(amount), mode, date: date || todayIST(), createdById: u.id });
     revalidatePath(`/orders/${orderId}`);
     return { ok: true };
   } catch (e) { return fail(e); }
@@ -147,7 +147,7 @@ export async function receivePaymentAction(customerId: number, amount: number, m
     const u = await requireAction("customers");
     if (!(amount > 0)) throw new Error("Enter an amount.");
     if (!mode) throw new Error("Pick how it was paid.");
-    await receiveCustomerPayment(u.tenantId, customerId, amount, mode, date || todayIST(), notes);
+    await receiveCustomerPayment(u.tenantId, customerId, amount, mode, date || todayIST(), notes, u.id);
     revalidatePath(`/customers/${customerId}`);
     return { ok: true };
   } catch (e) { return fail(e); }
@@ -201,7 +201,7 @@ export async function setFulfilAction(orderId: number, st: "PENDING" | "READY" |
     if (!["PENDING", "READY", "DELIVERED"].includes(st)) throw new Error("Unknown status.");
     const o = await ownOrder(u.tenantId, orderId);
     if (!o.isPreorder) throw new Error("This is not a pre-order.");
-    await db.update(schema.orders).set({ fulfilStatus: st }).where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)));
+    await db.update(schema.orders).set({ fulfilStatus: st, deliveredById: st === "DELIVERED" ? u.id : null, deliveredAt: st === "DELIVERED" ? new Date() : null }).where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)));
     revalidatePath("/preorders"); revalidatePath(`/orders/${orderId}`);
     return { ok: true };
   } catch (e) { return fail(e); }

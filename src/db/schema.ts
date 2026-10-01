@@ -390,6 +390,8 @@ export const orders = pgTable("orders", {
   payLinkStatus: text("pay_link_status").notNull().default(""),
   payLinkProvider: text("pay_link_provider").notNull().default(""), // razorpay | instamojo | cashfree
   createdById: integer("created_by_id").references(() => users.id),
+  deliveredById: integer("delivered_by_id").references(() => users.id), // who marked this delivered
+  deliveredAt: timestamp("delivered_at"),
 }, (t) => [
   uniqueIndex("orders_tenant_bill").on(t.tenantId, t.billNo),
   uniqueIndex("orders_tenant_fy_no").on(t.tenantId, t.fy, t.orderNo),
@@ -467,6 +469,7 @@ export const payments = pgTable("payments", {
   mode: text("mode").notNull(),
   notes: text("notes").notNull().default(""),
   ref: text("ref").notNull().default(""), // gateway payment id (e.g. Razorpay pay_...), to avoid double entries
+  createdById: integer("created_by_id").references(() => users.id), // which login recorded / confirmed this payment (null = system / gateway)
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("payments_order").on(t.orderId)]);
 
@@ -550,6 +553,9 @@ export const expenses = pgTable("expenses", {
   staffId: integer("staff_id").references(() => staff.id),
   amount: money("amount").notNull(),
   paymentMode: text("payment_mode").notNull(), // "Credit" = owed to vendor
+  paidFrom: text("paid_from").notNull().default("Company"), // Company | Owner | Staff - whose money was used
+  paidByName: text("paid_by_name").notNull().default(""),   // the owner's / staff's name when not from company funds (for reimbursement)
+  createdById: integer("created_by_id").references(() => users.id), // which login entered this expense
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("expenses_tenant_date").on(t.tenantId, t.date)]);
@@ -641,6 +647,7 @@ export const recipeComponentsRel = relations(recipeComponents, ({ one }) => ({
 export const ordersRel = relations(orders, ({ one, many }) => ({
   customer: one(customers, { fields: [orders.customerId], references: [customers.id] }),
   createdBy: one(users, { fields: [orders.createdById], references: [users.id] }),
+  deliveredBy: one(users, { fields: [orders.deliveredById], references: [users.id] }),
   packaging: many(orderPackaging),
   items: many(orderItems),
   payments: many(payments),
@@ -656,6 +663,7 @@ export const orderItemsRel = relations(orderItems, ({ one }) => ({
 export const paymentsRel = relations(payments, ({ one }) => ({
   order: one(orders, { fields: [payments.orderId], references: [orders.id] }),
   customer: one(customers, { fields: [payments.customerId], references: [customers.id] }),
+  createdBy: one(users, { fields: [payments.createdById], references: [users.id] }),
 }));
 export const customersRel = relations(customers, ({ many }) => ({ orders: many(orders), payments: many(payments) }));
 export const expensesRel = relations(expenses, ({ one }) => ({

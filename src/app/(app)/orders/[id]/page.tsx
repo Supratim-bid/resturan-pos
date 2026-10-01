@@ -19,7 +19,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const { saved } = await searchParams;
   const o = await db.query.orders.findFirst({
     where: and(eq(schema.orders.id, Number(id)), eq(schema.orders.tenantId, u.tenantId)),
-    with: { items: { orderBy: (t) => asc(t.id) }, packaging: { orderBy: (t) => asc(t.id) }, customer: true, payments: { orderBy: (t) => asc(t.id) }, createdBy: true },
+    with: { items: { orderBy: (t) => asc(t.id) }, packaging: { orderBy: (t) => asc(t.id) }, customer: true, payments: { orderBy: (t) => asc(t.id), with: { createdBy: true } }, createdBy: true, deliveredBy: true },
   });
   if (!o) notFound();
   const paid = o.payments.reduce((s, p) => s + Number(p.amount), 0);
@@ -92,6 +92,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
             </div>
           ) : <p className="text-sm text-muted">Walk-in (no customer)</p>}
           {o.notes && <p className="mt-2 rounded-lg bg-cream px-2 py-1 text-sm">📝 {o.notes}</p>}
+          {o.fulfilStatus === "DELIVERED" && o.deliveredBy && <p className="mt-2 text-xs font-semibold text-emerald-800">✓ Delivered by {o.deliveredBy.name}{o.deliveredAt ? ` · ${fmtDateTime(o.deliveredAt)}` : ""}</p>}
         </Card>
         <Card title="Amount">
           <dl className="space-y-1 text-sm">
@@ -135,7 +136,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
           <ul className="mb-3 divide-y divide-line text-sm">
             {o.payments.map((p) => (
               <li key={p.id} className="flex items-center justify-between py-1.5">
-                <span>{fmtDate(p.date)} · {p.mode}{p.notes ? ` · ${p.notes}` : ""}</span>
+                <span>{fmtDate(p.date)} · {p.mode}{p.createdBy ? ` · by ${p.createdBy.name}` : ""}{p.notes ? ` · ${p.notes}` : ""}</span>
                 <span className="flex items-center gap-3"><b className={`tabular-nums ${Number(p.amount) < 0 ? "text-red-700" : ""}`}>{Number(p.amount) < 0 ? "−" + inr2(-Number(p.amount)) : inr2(Number(p.amount))}</b>{canEditAnyOrder(u) && <DeletePaymentBtn id={p.id} />}</span>
               </li>
             ))}

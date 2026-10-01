@@ -108,6 +108,12 @@ export async function saveRecord(key: EntityKey, id: number | null, input: Recor
     if (key === "wastage" && !data.menuItemId && !data.ingredientId) throw new Error("Pick a dish or an ingredient.");
     if (key === "wastage" && data.menuItemId && !data.plates) throw new Error("Enter how many plates.");
     if (key === "expenses" && data.ingredientId && !data.qty) throw new Error("Enter the quantity bought, so stock updates.");
+    if (key === "expenses") {
+      if ((data.paidFrom === "Owner" || data.paidFrom === "Staff") && !String(data.paidByName ?? "").trim())
+        throw new Error("Enter the name of the owner/staff who paid, so you know whom to reimburse.");
+      if (data.paidFrom === "Company") data.paidByName = "";
+      if (!id) data.createdById = u.id;
+    }
     if (key === "ingredients") data.updatedAt = new Date();
     const oldPhone = key === "customers" && id ? (await db.query.customers.findFirst({ where: and(eq(schema.customers.id, id), eq(schema.customers.tenantId, tenantId)), columns: { phone: true } }))?.phone ?? "" : "";
     if (key === "customers" && data.phone && phone10(String(data.phone)) !== phone10(oldPhone)) {

@@ -16,7 +16,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
   const today = todayIST();
   const from = sp.from || today, to = sp.to || from;
   const show = sp.show || "all";
-  const conds = [eq(schema.orders.tenantId, u.tenantId), gte(schema.orders.date, from), lte(schema.orders.date, to)];
+  const searching = !!(sp.q && sp.q.trim());
+  const conds = [eq(schema.orders.tenantId, u.tenantId)];
+  // when searching, look across ALL dates (so an old bill/number/phone is found); otherwise stick to the chosen range
+  if (!searching) conds.push(gte(schema.orders.date, from), lte(schema.orders.date, to));
   if (show === "cancelled") conds.push(eq(schema.orders.status, "CANCELLED"));
   else if (show === "cancelreq") conds.push(eq(schema.orders.cancelStatus, "REQUESTED"));
   else if (show === "preorder") conds.push(eq(schema.orders.isPreorder, true), ne(schema.orders.status, "CANCELLED"));
@@ -24,8 +27,17 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
   if (sp.type) conds.push(eq(schema.orders.orderType, sp.type));
   let rows = await db.query.orders.findMany({
     where: and(...conds), with: { customer: true, items: true }, orderBy: [desc(schema.orders.date), desc(schema.orders.id)],
+    ...(searching ? { limit: 200 } : {}),
   });
-  if (sp.q) { const q = sp.q.toLowerCase(); rows = rows.filter((o) => (o.customer?.name ?? "").toLowerCase().includes(q) || o.billNo.toLowerCase().includes(q)); }
+  if (searching) {
+    const q = sp.q!.trim().toLowerCase(), qDigits = q.replace(/\D/g, "");
+    rows = rows.filter((o) =>
+      (o.customer?.name ?? "").toLowerCase().includes(q) ||
+      o.billNo.toLowerCase().includes(q) ||
+      o.orderType.toLowerCase().includes(q) ||
+      (qDigits.length >= 3 && (o.customer?.phone ?? "").replace(/\D/g, "").includes(qDigits)) ||
+      (qDigits.length >= 3 && (o.notes ?? "").replace(/\D/g, "").includes(qDigits)));
+  }
   const paid = await paidByOrder(u.tenantId, rows.map((r) => r.id));
   let list = rows.map((o) => ({ o, paid: paid.get(o.id) ?? 0, st: payStatus(Number(o.total), paid.get(o.id) ?? 0) }));
   if (show === "due") list = list.filter((x) => x.st.due > 0);
@@ -59,7 +71,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
           <select name="show" defaultValue={show} className="input !py-1.5"><option value="all">All</option><option value="due">Unpaid / due</option><option value="preorder">Pre-orders</option><option value="cancelreq">Cancel requests</option><option value="cancelled">Cancelled</option></select></div>
         <div><label className="label">Type</label>
           <select name="type" defaultValue={sp.type ?? ""} className="input !py-1.5"><option value="">All types</option>{types.map((t) => <option key={t}>{t}</option>)}</select></div>
-        <div><label className="label">Customer / #</label><input name="q" defaultValue={sp.q ?? ""} className="input !py-1.5" /></div>
+        <div><label className="label">Search bill #, name or phone</label><input name="q" defaultValue={sp.q ?? ""} placeholder="🔎 searches all dates" className="input !py-1.5" /></div>
         <div className="flex items-end"><button className="btn-ghost w-full !py-2">Apply</button></div>
       </form>
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">

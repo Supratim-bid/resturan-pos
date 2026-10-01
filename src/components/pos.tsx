@@ -16,7 +16,6 @@ export type PosInitial = {
   isPreorder?: boolean; mealSlot?: string; slotTime?: string;
 };
 
-const SLOT_TIME: Record<string, string> = { breakfast: "08:30", lunch: "13:00", "evening snacks": "17:30", snacks: "17:30", dinner: "20:30" };
 const addDay = (d: string, n: number) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -258,12 +257,15 @@ export function Pos({
     }));
   }
   function pickSlot(sl: string) {
-    setO((s) => ({ ...s, mealSlot: sl, slotTime: s.slotTime || SLOT_TIME[sl.toLowerCase()] || "" }));
+    // just set the meal; the time stays whatever the user typed (blank is fine - no default forced)
+    setO((s) => ({ ...s, mealSlot: sl }));
   }
 
   /** printKot: save, then open the KOT slip ready to print (the bill can be printed later) */
   function save(printKot = false) {
     setErr("");
+    if (!lines.length) { setErr("Add at least one dish."); return; }
+    if (pre && !o.mealSlot) { setErr("Pick the meal (breakfast / lunch / dinner) for this pre-order."); setCartOpen(false); return; }
     const amount = payLater || !payMode ? 0 : payAmt === "" ? total : Number(payAmt);
     start(async () => {
       const r = await saveOrderAction({
@@ -417,16 +419,20 @@ export function Pos({
             {pre && (
               <div className="mt-2 space-y-2">
                 <p className="text-xs text-muted">Date above = the day the food is served / delivered.</p>
-                <div className="flex flex-wrap gap-1.5">
+                <label className="label">Meal <span className="text-red-600">*</span> <span className="font-normal text-muted">(required)</span></label>
+                <div className={`flex flex-wrap gap-1.5 ${pre && !o.mealSlot ? "rounded-lg ring-1 ring-red-300" : ""}`}>
                   {mealSlots.map((sl) => (
                     <button type="button" key={sl} onClick={() => pickSlot(sl)}
                       className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${o.mealSlot === sl ? "border-brand bg-brand text-white" : "border-line bg-white"}`}>{sl}</button>
                   ))}
                 </div>
+                {!o.mealSlot && <p className="text-xs text-red-600">Pick the meal (breakfast / lunch / dinner).</p>}
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-muted" htmlFor="slotTime">Time</label>
+                  <label className="text-xs text-muted" htmlFor="slotTime">Time <span className="text-muted">(optional)</span></label>
                   <input id="slotTime" type="time" className="input !w-auto !py-1.5 text-sm" value={o.slotTime ?? ""} onChange={(e) => setO({ ...o, slotTime: e.target.value })} />
+                  {o.slotTime && <button type="button" className="text-xs text-brand underline" onClick={() => setO({ ...o, slotTime: "" })}>clear</button>}
                 </div>
+                <p className="text-xs text-muted">Leave the time blank if there is no fixed time - the meal is enough.</p>
               </div>
             )}
           </div>}

@@ -46,7 +46,7 @@ export async function deliveryCollectAction(orderId: number, _amount: number, mo
     if (due <= 0.5) throw new Error("Nothing is due on this bill.");
     await db.insert(schema.payments).values({
       tenantId: u.tenantId, orderId, customerId: o.customerId, amount: due, mode: mode === "UPI" ? "UPI" : "Cash", date: todayIST(),
-      notes: `Collected on delivery by ${u.name}`,
+      notes: `Collected on delivery by ${u.name}`, createdById: u.id,
     });
     revalidatePath("/delivery"); revalidatePath(`/orders/${orderId}`);
     return { ok: true };
@@ -56,7 +56,7 @@ export async function deliveredAction(orderId: number, done: boolean): Promise<R
   try {
     const u = await requireAction("delivery");
     await deliveryOrder(u.tenantId, orderId);
-    await db.update(schema.orders).set({ fulfilStatus: done ? "DELIVERED" : "" }).where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)));
+    await db.update(schema.orders).set({ fulfilStatus: done ? "DELIVERED" : "", deliveredById: done ? u.id : null, deliveredAt: done ? new Date() : null }).where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)));
     revalidatePath("/delivery"); revalidatePath("/preorders"); revalidatePath(`/orders/${orderId}`);
     return { ok: true };
   } catch (e) { return fail(e); }
