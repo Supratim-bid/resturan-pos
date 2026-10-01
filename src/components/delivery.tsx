@@ -17,9 +17,10 @@ export function DeliveryActions({ orderId, due, done, gateway, upiText, qrImage,
       <div className="flex flex-wrap gap-2">
         {/* kept mounted after payment so its "Paid ✓" screen stays until closed (it hides its own button when nothing is due) */}
         {(gateway || upiText || qrImage) && (
-          <CollectQr orderId={orderId} due={due} gateway={gateway} upiText={upiText} qrImage={qrImage} upiMode="UPI" today={today} restaurant={restaurant} billNo={billNo}
+          <CollectQr orderId={orderId} due={due} gateway={gateway} upiText={upiText} qrImage={qrImage} staticQr={qrImage} upiMode="UPI" today={today} restaurant={restaurant} billNo={billNo}
             label="📱 Collect by QR" actions={{ create: deliveryLinkAction, check: deliveryCheckAction, receive: (id, amt) => deliveryCollectAction(id, amt, "UPI") }} />
         )}
+        {due > 0 && qrImage && <a href={qrImage} target="_blank" rel="noreferrer" title="Our QR - open full size" className="inline-flex items-center gap-1.5 rounded-lg bg-white px-1.5 py-1 text-xs ring-1 ring-line"><img src={qrImage} alt="Our payment QR" className="h-10 w-10 rounded object-cover" />Our QR</a>}
         {due > 0 && <button type="button" className="btn-ghost btn-sm" disabled={pending} onClick={() => { if (confirm(`Got ₹${due} in cash?`)) run(() => deliveryCollectAction(orderId, due, "Cash")); }}>💵 Cash collected · ₹{due}</button>}
         {done
           ? <button type="button" className="btn-ghost btn-sm" disabled={pending} onClick={() => run(() => deliveredAction(orderId, false))}>Undo delivered</button>

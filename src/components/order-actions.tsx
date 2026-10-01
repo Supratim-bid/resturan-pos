@@ -176,10 +176,12 @@ type QrActions = {
   check: (orderId: number) => Promise<{ ok: true; data?: string } | { ok: false; error: string }>;
   receive: (orderId: number, amount: number, mode: string, date: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 };
-export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upiMode, today, restaurant, billNo, actions, label }: {
+export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upiMode, today, restaurant, billNo, actions, label, staticQr = "" }: {
   orderId: number; due: number; gateway: string; upiText: string; qrImage: string; upiMode: string; today: string; restaurant: string; billNo: string;
   /** the Delivery tab passes its own actions (delivery staff may not have the Orders tab) */
   actions?: QrActions; label?: string;
+  /** an uploaded "static" QR picture to offer as its own tab next to the gateway QR (Delivery tab) */
+  staticQr?: string;
 }) {
   const act: QrActions = actions ?? { create: (id) => createPayLinkAction(id), check: checkPayLinkAction, receive: addPaymentAction };
   const [open, setOpen] = useState(false);
@@ -187,7 +189,8 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
   const [due, setDue] = useState(dueNow);
   const [snap, setSnap] = useState({ upiText, qrImage });
   // with a gateway only its QR is shown (paid is detected by itself); our own UPI QR only when there's no gateway
-  const tab: "link" | "upi" = gateway ? "link" : "upi";
+  const [tab, setTab] = useState<"link" | "upi">(gateway ? "link" : "upi");
+  const both = !!gateway && !!staticQr; // gateway QR + the restaurant's own QR picture
   const [img, setImg] = useState("");
   const [url, setUrl] = useState("");
   const [state, setState] = useState<"" | "loading" | "waiting" | "paid" | "error">("");
@@ -202,7 +205,8 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
     alive.current = true;
     setErr(""); setImg("");
     if (tab === "upi") {
-      if (snap.upiText) QRCode.toDataURL(snap.upiText, { width: 520, margin: 1 }).then(setImg);
+      if (both) setImg(staticQr);
+      else if (snap.upiText) QRCode.toDataURL(snap.upiText, { width: 520, margin: 1 }).then(setImg);
       else if (snap.qrImage) setImg(snap.qrImage);
       setState("");
       return () => { alive.current = false; };
@@ -214,7 +218,7 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
       setUrl(r.data!); setImg(await QRCode.toDataURL(r.data!, { width: 520, margin: 1 })); setState("waiting");
     });
     return () => { alive.current = false; };
-  }, [open, tab, orderId, snap]);
+  }, [open, tab, orderId, snap, both, staticQr]);
 
   // watch for the payment every 4 seconds
   useEffect(() => {
@@ -239,8 +243,15 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
               <b>Bill {billNo}</b>
               <button type="button" className="btn-ghost btn-sm" onClick={() => { setOpen(false); setState(""); router.refresh(); }}>Close</button>
             </div>
+            {both && (
+              <div className="inline-flex overflow-hidden rounded-full border border-line text-xs font-semibold">
+                <button type="button" className={`px-3 py-1.5 ${tab === "link" ? "bg-brand text-white" : ""}`} onClick={() => { setState(""); setTab("link"); }}>{gateway} QR</button>
+                <button type="button" className={`px-3 py-1.5 ${tab === "upi" ? "bg-brand text-white" : ""}`} onClick={() => { setState(""); setTab("upi"); }}>Our QR (static)</button>
+              </div>
+            )}
             {/* which QR this is, so staff know whether to check their UPI app */}
-            {gateway ? <div className="inline-block rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{gateway} QR · payment checked automatically</div>
+            {both && tab === "upi" ? <div className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">Static QR (your uploaded QR) · customer types the amount</div>
+              : gateway ? <div className="inline-block rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{gateway} QR · payment checked automatically</div>
               : snap.qrImage && !snap.upiText ? <div className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">Static QR (your uploaded QR) · customer types the amount</div>
               : <div className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">UPI QR{upiId(snap.upiText) ? ` · ${upiId(snap.upiText)}` : ""} · amount filled in</div>}
             <div className="text-3xl font-bold tabular-nums">₹{due}</div>
@@ -260,7 +271,7 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
             )}
             {tab === "upi" && img && state !== "paid" && (
               <>
-                <p className="text-xs text-muted">Customer scans with <b>any UPI app</b> (GPay, PhonePe, Paytm, BHIM){snap.upiText ? " - the amount is filled in" : " and types the amount"}. Check your UPI app, then:</p>
+                <p className="text-xs text-muted">Customer scans with <b>any UPI app</b> (GPay, PhonePe, Paytm, BHIM){snap.upiText && !both ? " - the amount is filled in" : " and types the amount"}. Check your UPI app, then:</p>
                 <button type="button" className="btn-primary w-full" disabled={pending} onClick={() => start(async () => {
                   setErr(""); const r = await act.receive(orderId, due, upiMode, today);
                   if (!r.ok) setErr(r.error); else setState("paid");

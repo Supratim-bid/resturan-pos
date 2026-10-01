@@ -34,7 +34,7 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
   const todo = rows.filter((r) => !r.done), done = rows.filter((r) => r.done);
   const list = show === "done" ? done : todo;
   const toCollect = todo.reduce((a, r) => a + r.due, 0);
-  const qrInfo = gw ? `${GATEWAY_LABEL[gw as Gateway]} QR (payment checked automatically)` : s?.upiId ? `UPI QR for ${s.upiId} (amount filled in)` : s?.qrImageId ? "Static QR - your uploaded QR (customer types the amount)" : "No QR set up - collect cash, or add a UPI ID / QR in Settings";
+  const qrInfo = [gw ? `${GATEWAY_LABEL[gw as Gateway]} QR (payment checked automatically)` : "", s?.qrImageId ? "Static QR - your uploaded QR (customer types the amount)" : !gw && s?.upiId ? `UPI QR for ${s.upiId} (amount filled in)` : ""].filter(Boolean).join(" + ") || "No QR set up - collect cash, or add a UPI ID / QR in Settings";
   const tab = (k: string, label: string) => <Link href={`/delivery?date=${date}&show=${k}`} className={`rounded-full px-3 py-1.5 text-sm font-semibold ${show === k ? "bg-brand text-white" : "bg-white ring-1 ring-line"}`}>{label}</Link>;
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -49,7 +49,9 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
       {list.length === 0 ? <Empty>{show === "done" ? "Nothing delivered yet for this day." : "No delivery orders waiting for this day."}</Empty> : (
         <div className="space-y-3">
           {list.map(({ o, paid, due, addr, done: isDone }) => {
-            const upi = s ? upiForOnline(s, due, `Bill ${o.billNo}`) : null;
+            // the uploaded QR picture is shown whenever there is one; otherwise a UPI QR with the amount
+            const staticQr = s?.qrImageId ? `/img/${s.qrImageId}` : "";
+            const upi = s && !staticQr ? upiForOnline(s, due, `Bill ${o.billNo}`) : null;
             const phone = o.customer?.phone ?? (o.notes.match(/Online order \(([\d\s+]+)\)/)?.[1] ?? "");
             const p10 = phone.replace(/\D/g, "").slice(-10);
             return (
@@ -68,7 +70,7 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
                 <div className="text-xs text-muted">{o.items.map((i) => `${Number(i.qty)} × ${i.name}`).join(", ")}{paid > 0 ? ` · paid ${inr(paid)}` : ""}</div>
                 {o.notes && <div className="rounded-lg bg-cream px-2 py-1 text-xs">{o.notes}</div>}
                 <DeliveryActions orderId={o.id} due={due} done={isDone} gateway={gw ? GATEWAY_LABEL[gw as Gateway] : ""}
-                  upiText={upi?.kind === "upi" ? upi.text : ""} qrImage={upi?.kind === "image" ? `/img/${upi.imageId}` : ""}
+                  upiText={upi?.kind === "upi" ? upi.text : ""} qrImage={staticQr}
                   today={today} restaurant={s?.name ?? ""} billNo={o.billNo} />
               </div>
             );
