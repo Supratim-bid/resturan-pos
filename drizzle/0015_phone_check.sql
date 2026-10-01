@@ -1,0 +1,1 @@
+ALTER TABLE "online_orders" ADD COLUMN "phone_check" text DEFAULT '' NOT NULL;

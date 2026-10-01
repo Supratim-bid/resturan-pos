@@ -128,46 +128,61 @@ async function orderDue(tenantId: number, orderId: number) {
 const OPEN: Record<string, string[]> = { razorpay: ["created"], instamojo: ["Pending", "Sent"], cashfree: ["ACTIVE"] };
 const isOpen = (provider: string, status: string) => (OPEN[provider] ?? []).includes(status);
 
-export type LinkReq = { amount: number; purpose: string; ref: string; customerName?: string; phone?: string; email?: string; origin?: string; returnUrl?: string; notes?: Record<string, string> };
-export type Link = { provider: Gateway; id: string; url: string; status: string };
+export type LinkReq = { amount: number; purpose: string; ref: string; phone?: string; origin?: string; returnUrl?: string; notes?: Record<string, string> };
+/** phoneCheck: "ok" = the gateway accepted the customer's mobile, "invalid" = it refused it (or it isn't a mobile number), "" = not checked */
+export type Link = { provider: Gateway; id: string; url: string; status: string; phoneCheck: "" | "ok" | "invalid" };
 
 /** Make a payment link with the restaurant's gateway (used for bills and for customers' online orders) */
 export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<Link> {
   const s = await settingsOf(tenantId);
   const g = activeGateway(s);
   if (!g) throw new Error("No payment gateway is set up. Owner: Settings → Online payments.");
-  const phone = (r.phone ?? "").replace(/\D/g, "").slice(-10);
+  // Only the customer's mobile is ever sent (never their name): the gateway pre-fills it and, by accepting or refusing it,
+  // tells us whether it looks like a real number. Refused -> the link is made without it, and phoneCheck says "invalid".
+  const cust = (r.phone ?? "").replace(/\D/g, "").slice(-10);
+  const custOk = /^[6-9]\d{9}$/.test(cust);
+  let phoneBad = !!r.phone && !custOk, phoneUsed = false;
+  const isPhoneErr = (m: string) => /phone|contact|mobile/i.test(m);
   const https = /^https:\/\//.test(r.origin ?? "");
   const ret = r.returnUrl && /^https?:\/\//.test(r.returnUrl) ? r.returnUrl : "";
   let id = "", url = "", status = "";
   if (g === "razorpay") {
-    const link = await rzp(s)("/payment_links", {
-      method: "POST",
+    const rzBody = (withPhone: boolean) => ({
+      method: "POST" as const,
       body: {
+        ...(withPhone && custOk ? { customer: { contact: "+91" + cust } } : {}),
         amount: Math.round(r.amount * 100), currency: "INR", accept_partial: false,
         description: r.purpose.slice(0, 250), reference_id: `${r.ref}-${Date.now().toString(36)}`.slice(0, 40),
-        customer: r.customerName || phone ? { ...(r.customerName ? { name: r.customerName } : {}), ...(phone.length === 10 ? { contact: "+91" + phone } : {}), ...(r.email ? { email: r.email } : {}) } : undefined,
         notify: { sms: false, email: false }, reminder_enable: false,
         notes: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
         ...(ret ? { callback_url: ret, callback_method: "get" } : {}),
       },
     });
+    let link: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    try { link = await rzp(s)("/payment_links", rzBody(true)); phoneUsed = custOk; }
+    catch (e) {
+      const m = String((e as Error).message);
+      if (!custOk || /key|auth/i.test(m)) throw e;
+      if (isPhoneErr(m)) phoneBad = true;
+      link = await rzp(s)("/payment_links", rzBody(false));
+    }
     id = link.id; url = link.short_url; status = link.status;
   } else if (g === "instamojo") {
     if (r.amount < 9) throw new Error("Instamojo: the smallest payment it allows is ₹9.");
     const call = await instamojo(s);
-    const req = (who: boolean, back: boolean) => ({
+    const req = (withPhone: boolean, back: boolean) => ({
+      ...(withPhone && custOk ? { phone: cust } : {}),
       amount: r.amount.toFixed(2), purpose: r.purpose.replace(/[^\w\s-]/g, "").slice(0, 30), allow_repeated_payments: "false", send_email: "false", send_sms: "false",
-      ...(who && r.customerName ? { buyer_name: r.customerName.replace(/[^\w\s.]/g, "").slice(0, 100) } : {}), ...(who && /^[6-9]\d{9}$/.test(phone) ? { phone } : {}),
       ...(https ? { webhook: `${r.origin}/api/pay/instamojo` } : {}), ...(back && ret ? { redirect_url: ret } : {}),
     });
-    // Instamojo refuses some customer names / numbers and return addresses: try again with less, rather than fail the order
+    // a refused mobile or return address -> try again without it
     let q: Record<string, any> | null = null; let first = ""; // eslint-disable-line @typescript-eslint/no-explicit-any
-    for (const [who, back] of [[true, true], [false, true], [false, false]] as const) {
-      try { q = await call("/payment_requests/", req(who, back)); break; }
+    for (const [withPhone, back] of [...(custOk ? [[true, true]] : []), [false, true], [false, false]] as [boolean, boolean][]) {
+      try { q = await call("/payment_requests/", req(withPhone, back)); phoneUsed = withPhone; break; }
       catch (e) {
         const m = String((e as Error).message);
         if (/token|credential|client|unauthor|authentic/i.test(m)) throw e;
+        if (withPhone && isPhoneErr(m)) phoneBad = true;
         first ||= m; console.error("instamojo request refused, retrying with less:", m);
       }
     }
@@ -179,9 +194,20 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
     const meta: Record<string, string> = {};
     if (https) meta.notify_url = `${r.origin}/api/pay/cashfree`;
     if (ret) meta.return_url = ret;
+    // Cashfree insists on a phone: the customer's if we have a good one, else the restaurant's own
+    let usePhone = custOk;
+    const cfPhone = () => usePhone ? cust : own.length === 10 ? own : "9999999999";
+    const cf = async (path: string, mk: () => unknown) => {
+      try { const out = await cashfree(s)(path, mk()); phoneUsed = usePhone; return out; }
+      catch (e) {
+        if (!usePhone || !isPhoneErr(String((e as Error).message))) throw e;
+        usePhone = false; phoneBad = true;
+        return cashfree(s)(path, mk());
+      }
+    };
     const body = (withMeta: boolean) => ({
       link_id: withMeta ? linkId : `${linkId}r`.slice(0, 50), link_amount: r.amount, link_currency: "INR", link_purpose: r.purpose.slice(0, 500),
-      customer_details: { customer_phone: phone.length === 10 ? phone : own.length === 10 ? own : "9999999999", ...(r.customerName ? { customer_name: r.customerName.slice(0, 100) } : {}) },
+      customer_details: { customer_phone: cfPhone() },
       link_partial_payments: false, link_notify: { send_sms: false, send_email: false },
       link_notes: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
       ...(withMeta && Object.keys(meta).length ? { link_meta: meta } : {}),
@@ -189,7 +215,7 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
     let q: Record<string, any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
     let linksOff = false;
     try {
-      q = await cashfree(s)("/links", body(true));
+      q = await cf("/links", () => body(true));
     } catch (e) {
       const m = String((e as Error).message);
       if (/not enabled|not approved|not activated/i.test(m)) linksOff = true; // Payment Links API not switched on for this account
@@ -198,7 +224,7 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
         // a return / notify address Cashfree won't accept (e.g. domain not whitelisted yet): make the link without them -
         // the customer's order page still checks the payment by itself
         console.error("cashfree link with return url failed, retrying without:", m);
-        try { q = await cashfree(s)("/links", body(false)); }
+        try { q = await cf("/links", () => body(false)); }
         catch (e2) { if (/not enabled|not approved|not activated/i.test(String((e2 as Error).message))) linksOff = true; else throw e2; }
       }
     }
@@ -206,26 +232,25 @@ export async function createGatewayLink(tenantId: number, r: LinkReq): Promise<L
     else if (linksOff) {
       // fall back to Cashfree's standard checkout (Orders API - on for every live account); our own page opens it
       const orderId = `cfo_${linkId}`.slice(0, 45);
-      const cphone = phone.length === 10 ? phone : own.length === 10 ? own : "9999999999";
       const order = (withMeta: boolean) => ({
         order_id: orderId, order_amount: r.amount, order_currency: "INR", order_note: r.purpose.slice(0, 200),
-        customer_details: { customer_id: `c${cphone}`, customer_phone: cphone, ...(r.customerName ? { customer_name: r.customerName.slice(0, 100) } : {}) },
+        customer_details: { customer_id: `t${tenantId}`, customer_phone: cfPhone() },
         order_tags: { tenant_id: String(tenantId), ...(r.notes ?? {}) },
         ...(withMeta && Object.keys(meta).length ? { order_meta: { ...(meta.return_url ? { return_url: meta.return_url } : {}), ...(meta.notify_url ? { notify_url: meta.notify_url } : {}) } } : {}),
       });
       let o: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-      try { o = await cashfree(s)("/orders", order(true)); }
+      try { o = await cf("/orders", () => order(true)); }
       catch (e) {
         if (!Object.keys(meta).length || /authentication|client|secret|credential/i.test(String((e as Error).message))) throw e;
         console.error("cashfree order with return url failed, retrying without:", (e as Error).message);
-        o = await cashfree(s)("/orders", order(false));
+        o = await cf("/orders", () => order(false));
       }
       id = String(o.order_id || orderId); status = String(o.order_status || "ACTIVE");
       url = `${r.origin || ""}/api/pay/checkout/${encodeURIComponent(id)}`;
     }
   }
   if (!id || !url) throw new Error(`${GATEWAY_LABEL[g]}: no link came back. Check the keys.`);
-  return { provider: g, id, url, status };
+  return { provider: g, id, url, status, phoneCheck: !r.phone ? "" : phoneBad ? "invalid" : phoneUsed ? "ok" : "" };
 }
 
 /** Cashfree checkout orders (used when the Payment Links API is off) carry this prefix */
@@ -273,7 +298,7 @@ export async function linkStatus(tenantId: number, provider: Gateway, id: string
 }
 
 /** Create (or reuse) a payment link for what is due on this order, with the restaurant's chosen gateway */
-export async function createPaymentLink(tenantId: number, orderId: number, origin = "") {
+export async function createPaymentLink(tenantId: number, orderId: number, origin = "", phone = "") {
   const s = await settingsOf(tenantId);
   const g = activeGateway(s);
   if (!g) throw new Error("No payment gateway is set up. Owner: Settings → Online payments.");
@@ -281,17 +306,17 @@ export async function createPaymentLink(tenantId: number, orderId: number, origi
   if (o.status !== "ACTIVE") throw new Error("This bill is cancelled.");
   if (due <= 0.5) throw new Error("Nothing is due on this bill.");
   // reuse an open link of the same gateway for the same amount
-  if (o.payLinkId && o.payLinkProvider === g && isOpen(g, o.payLinkStatus) && Math.abs(Number(o.payLinkAmount ?? 0) - due) < 0.01) return o.payLinkShort;
+  if (!phone && o.payLinkId && o.payLinkProvider === g && isOpen(g, o.payLinkStatus) && Math.abs(Number(o.payLinkAmount ?? 0) - due) < 0.01) return { url: o.payLinkShort, phoneCheck: "" as const };
   if (o.payLinkId && o.payLinkProvider === "razorpay" && o.payLinkStatus === "created" && s.razorpayKeyId && s.razorpayKeySecret) {
     await rzp(s)(`/payment_links/${o.payLinkId}/cancel`, { method: "POST" }).catch(() => {});
   }
   const link = await createGatewayLink(tenantId, {
-    amount: due, purpose: `${s.name} - Bill ${o.billNo}`, ref: `o${o.id}`, customerName: o.customer?.name, phone: o.customer?.phone ?? "", email: o.customer?.email ?? "",
+    amount: due, purpose: `${s.name} - Bill ${o.billNo}`, ref: `o${o.id}`, phone,
     origin, notes: { order_id: String(o.id), bill_no: o.billNo },
   });
   await db.update(schema.orders).set({ payLinkId: link.id, payLinkShort: link.url, payLinkAmount: due, payLinkStatus: link.status, payLinkProvider: link.provider })
     .where(and(eq(schema.orders.id, o.id), eq(schema.orders.tenantId, tenantId)));
-  return link.url;
+  return { url: link.url, phoneCheck: link.phoneCheck };
 }
 
 /** Record whatever was paid on a link (safe to call many times) - amount in rupees */
@@ -342,14 +367,14 @@ export async function createOnlineOrderLink(tenantId: number, onlineOrderId: num
   if (due <= 0.5) throw new Error("Already paid.");
   if (o.payLinkId && o.payLinkProvider === g && isOpen(g, o.payLinkStatus)) return o.payLinkUrl;
   const link = await createGatewayLink(tenantId, {
-    amount: due, purpose: `${s.name} Online order ${o.id}`, ref: `w${o.id}`, customerName: o.name, phone: o.phone,
+    amount: due, purpose: `${s.name} Online order ${o.id}`, ref: `w${o.id}`, phone: o.phone,
     origin, returnUrl: /^https?:\/\//.test(origin) ? `${origin}/${code}/order/${o.token}?paid=1` : "", notes: { online_order_id: String(o.id) },
   }).catch(async (e) => {
     // keep the gateway's reason so staff can see why the customer couldn't pay online
     await db.update(schema.onlineOrders).set({ payLinkStatus: `error: ${String((e as Error).message).slice(0, 300)}` }).where(eq(schema.onlineOrders.id, o.id));
     throw e;
   });
-  await db.update(schema.onlineOrders).set({ payLinkId: link.id, payLinkUrl: link.url, payLinkStatus: link.status, payLinkProvider: link.provider })
+  await db.update(schema.onlineOrders).set({ payLinkId: link.id, payLinkUrl: link.url, payLinkStatus: link.status, payLinkProvider: link.provider, ...(link.phoneCheck ? { phoneCheck: `${link.phoneCheck}:${link.provider}` } : {}) })
     .where(eq(schema.onlineOrders.id, o.id));
   return link.url;
 }

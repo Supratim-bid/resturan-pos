@@ -433,7 +433,8 @@ export const onlineOrders = pgTable("online_orders", {
   payLinkUrl: text("pay_link_url").notNull().default(""),
   payLinkStatus: text("pay_link_status").notNull().default(""),
   payLinkProvider: text("pay_link_provider").notNull().default(""),
-  paidOnline: money("paid_online").notNull().default(0),          // amount the gateway confirmed             // payment screenshot the customer attached (optional, staff-only)
+  phoneCheck: text("phone_check").notNull().default(""), // "ok:instamojo" / "invalid:instamojo" - did the payment gateway accept the mobile?
+  paidOnline: money("paid_online").notNull().default(0),          // amount the gateway confirmed
   device: text("device").notNull().default(""),               // hash of the customer's browser id (for "My orders")
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("online_orders_tenant_status").on(t.tenantId, t.status, t.createdAt)]);

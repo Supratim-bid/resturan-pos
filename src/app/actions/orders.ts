@@ -9,7 +9,7 @@ import { saveOrder, cancelOrder, restoreOrder, settleCancelledMoney, receiveCust
 import { round2, todayIST } from "@/lib/format";
 import { checkPaymentLink, createPaymentLink } from "@/lib/gateway";
 
-type R<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
+type R<T = undefined> = { ok: true; data?: T; warning?: string } | { ok: false; error: string };
 const fail = (e: unknown) => ({ ok: false as const, error: String((e as Error)?.message ?? e).replace(/^Error:\s*/, "") });
 
 export async function saveOrderAction(input: OrderInput): Promise<R<number>> {
@@ -161,15 +161,17 @@ export async function quickCustomerAction(c: { name: string; phone: string; flat
 }
 
 /** Payment gateway (Razorpay / Instamojo / Cashfree): make a payment link for what's due (reuses an open one) */
-export async function createPayLinkAction(orderId: number): Promise<R<string>> {
+export async function createPayLinkAction(orderId: number, phone = ""): Promise<R<string>> {
   try {
     const u = await requireAction("orders");
     if (!u.features.includes("paymentGateways")) throw new Error("Payment links are not in your plan.");
     const h = await headers();
     const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? ""}`;
-    const url = await createPaymentLink(u.tenantId, orderId, origin);
+    const p = String(phone ?? "").replace(/\D/g, "").slice(-10);
+    if (p && !/^[6-9]\d{9}$/.test(p)) throw new Error("Enter a 10-digit mobile number, or leave it empty.");
+    const { url, phoneCheck } = await createPaymentLink(u.tenantId, orderId, origin, p);
     revalidatePath(`/orders/${orderId}`);
-    return { ok: true, data: url };
+    return { ok: true, data: url, ...(phoneCheck === "invalid" ? { warning: "The payment gateway says this mobile number is not valid, so the link was made without it. Check the number with the customer." } : {}) };
   } catch (e) { return fail(e); }
 }
 

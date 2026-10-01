@@ -125,9 +125,11 @@ export function PayLinkPanel({ orderId, link, linkStatus, due, phone, restaurant
 }) {
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [url, setUrl] = useState(link);
+  const [mob, setMob] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
-  const p = phone.replace(/\D/g, "");
+  const typed = mob.replace(/\D/g, "").slice(-10);
+  const p = typed.length === 10 ? typed : phone.replace(/\D/g, "");
   const wa = (u: string) => `https://wa.me/${p.length === 10 ? "91" + p : p}?text=${encodeURIComponent(`${restaurant} - Bill ${billNo}\nAmount due: ₹${due}\nPay online (UPI / card / net banking): ${u}`)}`;
   return (
     <div className="space-y-2 rounded-xl border border-line p-3">
@@ -136,13 +138,18 @@ export function PayLinkPanel({ orderId, link, linkStatus, due, phone, restaurant
         {linkStatus && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${["paid", "PAID", "Completed"].includes(linkStatus) ? "bg-emerald-100 text-emerald-800" : "bg-gold-light text-ink"}`}>{linkStatus}</span>}
       </div>
       {url && <div className="break-all rounded-lg bg-cream px-2 py-1 font-mono text-xs">{url}</div>}
+      {due > 0 && (
+        <label className="block text-xs text-muted">Customer mobile <span className="font-normal">(optional - pre-fills the payment page; leave empty and the customer types it there)</span>
+          <input className="input mt-1 max-w-56" inputMode="numeric" maxLength={14} placeholder="10-digit mobile" value={mob} onChange={(e) => setMob(e.target.value)} />
+        </label>
+      )}
       <div className="flex flex-wrap gap-2">
         {due > 0 && (
           <button type="button" className="btn-primary btn-sm" disabled={pending} onClick={() => start(async () => {
             setMsg(null);
-            const r = await createPayLinkAction(orderId);
+            const r = await createPayLinkAction(orderId, mob);
             if (!r.ok) return setMsg({ ok: false, t: r.error });
-            setUrl(r.data!); setMsg({ ok: true, t: "Link ready - share it with the customer." }); router.refresh();
+            setUrl(r.data!); setMsg(r.warning ? { ok: false, t: `Link ready. ⚠ ${r.warning}` } : { ok: true, t: "Link ready - share it with the customer." }); router.refresh();
           })}>{url ? "New link for ₹" + due : `Create link for ₹${due}`}</button>
         )}
         {url && due > 0 && <a className="btn-ghost btn-sm" href={wa(url)} target="_blank" rel="noreferrer">Send on WhatsApp</a>}

@@ -68,6 +68,8 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
                 <span>{o.name}</span>
                 <Badge tone={o.kind === "DELIVERY" ? "brand" : "gray"}>{o.kind === "DELIVERY" ? "🛵 Delivery" : "🥡 Pickup"}</Badge>
                 {o.isPreorder && <Badge tone="amber">🗓️ {fmtDate(o.date)} · {o.mealSlot}{o.slotTime ? ` · ${fmtTime(o.slotTime)}` : ""}</Badge>}
+                {o.phoneCheck.startsWith("invalid") && <Badge tone="red">⚠ Mobile looks fake ({GATEWAY_LABEL[o.phoneCheck.split(":")[1] as Gateway] ?? "gateway"} refused it)</Badge>}
+                {o.phoneCheck.startsWith("ok") && <Badge tone="green">✓ Mobile accepted by {GATEWAY_LABEL[o.phoneCheck.split(":")[1] as Gateway] ?? "gateway"}</Badge>}
                 {o.customerId && blockedIds.has(o.customerId) ? <Badge tone="red">🚫 Blocked number</Badge>
                   : (counts.get(o.customerId ?? 0) ?? 0) > (o.status === "ACCEPTED" ? 1 : 0)
                     ? <Badge tone="green">✓ Regular · {counts.get(o.customerId!)} bills</Badge>
