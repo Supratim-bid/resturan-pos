@@ -28,6 +28,21 @@ export default async function KotScreen({ searchParams }: { searchParams: Promis
   const newKey = active.filter((o) => o.kotStatus === "NEW" && o.status === "ACTIVE").map((o) => `${o.id}@${o.kotAt?.getTime() ?? 0}`).join(",");
   const counts = { NEW: 0, PREPARING: 0, READY: 0 } as Record<string, number>;
   for (const o of active) if (o.status === "ACTIVE") counts[o.kotStatus] = (counts[o.kotStatus] ?? 0) + 1;
+  // dish totals across open tickets: how many plates of each dish the kitchen has to make
+  const totals = new Map<string, { name: string; fresh: number; cooking: number; ready: number; kots: number[] }>();
+  for (const o of active) {
+    if (o.status !== "ACTIVE") continue;
+    for (const i of o.items) {
+      const k = i.name.trim().toLowerCase();
+      const t = totals.get(k) ?? { name: i.name, fresh: 0, cooking: 0, ready: 0, kots: [] };
+      const q = Number(i.qty);
+      if (o.kotStatus === "NEW") t.fresh += q; else if (o.kotStatus === "PREPARING") t.cooking += q; else t.ready += q;
+      if (o.kotNo != null && !t.kots.includes(o.kotNo)) t.kots.push(o.kotNo);
+      totals.set(k, t);
+    }
+  }
+  const dishRows = [...totals.values()].sort((a, b) => (b.fresh + b.cooking) - (a.fresh + a.cooking) || a.name.localeCompare(b.name));
+  const toMake = dishRows.reduce((a, r) => a + r.fresh + r.cooking, 0);
   const tab = (k: string, label: string) => <Link href={qs({ show: k === "done" ? "done" : "" })} className={`rounded-full px-3 py-1.5 text-sm font-semibold ${show === k ? "bg-brand text-white" : "bg-white ring-1 ring-line"}`}>{label}</Link>;
 
   return (
@@ -43,6 +58,29 @@ export default async function KotScreen({ searchParams }: { searchParams: Promis
         {tab("active", `To do (${active.length})`)}{tab("done", isToday ? "Served today" : "Served")}
         <span className="text-sm text-muted">New {counts.NEW} · Cooking {counts.PREPARING} · Ready {counts.READY}</span>
       </div>
+      {show === "active" && dishRows.length > 0 && (
+        <div className="card">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-extrabold">🍳 Dish totals · {toMake} plate{toMake === 1 ? "" : "s"} to make</h2>
+            <span className="text-xs text-muted">All open tickets added up by dish</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-base">
+              <thead><tr className="text-left text-xs uppercase text-muted"><th className="py-1">Dish</th><th className="py-1 text-right">To make</th><th className="py-1 text-right">New</th><th className="py-1 text-right">Cooking</th><th className="py-1 text-right">Ready</th><th className="py-1 pl-4">KOTs</th></tr></thead>
+              <tbody>{dishRows.map((r) => (
+                <tr key={r.name} className="border-t border-line">
+                  <td className="py-1.5 font-semibold">{r.name}</td>
+                  <td className="py-1.5 text-right text-xl font-extrabold tabular-nums text-brand">{r.fresh + r.cooking || "–"}</td>
+                  <td className="py-1.5 text-right tabular-nums">{r.fresh || ""}</td>
+                  <td className="py-1.5 text-right tabular-nums">{r.cooking || ""}</td>
+                  <td className="py-1.5 text-right tabular-nums text-emerald-700">{r.ready || ""}</td>
+                  <td className="py-1.5 pl-4 text-sm text-muted">{r.kots.sort((a, b) => a - b).map((n) => `#${n}`).join(", ")}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {list.length === 0 ? <Empty>{show === "done" ? (isToday ? "Nothing served yet today." : "Nothing served on this day.") : isToday ? "No KOTs right now. New orders show up here." : "No open KOTs for this day."}</Empty> : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {list.map((o) => {
