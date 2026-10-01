@@ -132,3 +132,83 @@ export async function rawMaterialSpend(tenantId: number, from: string, to: strin
     .where(and(eq(E.tenantId, tenantId), gte(E.date, from), lte(E.date, to), sql`(${E.ingredientId} is not null or ${E.category} in (${sql.join(cats.map((c) => sql`${c}`), sql`, `)}))`));
   return Number(r.s);
 }
+
+// ---------------- more reports (any date range) ----------------
+
+/** Bills made by each staff login */
+export async function staffSales(tenantId: number, from: string, to: string) {
+  const rows = await db.select({ id: O.createdById, name: schema.users.name, bills: sql<number>`count(*)`, sales: sql<number>`coalesce(sum(${O.taxable}),0)` })
+    .from(O).leftJoin(schema.users, eq(schema.users.id, O.createdById)).where(inRange(tenantId, from, to))
+    .groupBy(O.createdById, schema.users.name);
+  return rows.map((r) => ({ name: r.name ?? "Online / system", bills: Number(r.bills), sales: Number(r.sales) })).sort((a, b) => b.bills - a.bills);
+}
+
+/** Orders and sales by hour of the day (India time) - the busy hours */
+export async function hourlySales(tenantId: number, from: string, to: string) {
+  const h = sql<number>`extract(hour from (${O.createdAt} + interval '5 hours 30 minutes'))::int`;
+  const rows = await db.select({ h, n: sql<number>`count(*)`, sales: sql<number>`coalesce(sum(${O.taxable}),0)` }).from(O).where(inRange(tenantId, from, to)).groupBy(h);
+  return rows.map((r) => ({ hour: Number(r.h), orders: Number(r.n), sales: Number(r.sales) })).sort((a, b) => a.hour - b.hour);
+}
+
+/** Sales by menu category */
+export async function categorySales(tenantId: number, from: string, to: string) {
+  const I = schema.orderItems, M = schema.menuItems, C = schema.categories;
+  const rows = await db.select({ name: C.name, qty: sql<number>`sum(${I.qty})`, sales: sql<number>`sum(${I.lineTotal})` })
+    .from(I).innerJoin(O, eq(O.id, I.orderId)).leftJoin(M, eq(M.id, I.menuItemId)).leftJoin(C, eq(C.id, M.categoryId))
+    .where(inRange(tenantId, from, to)).groupBy(C.name);
+  return rows.map((r) => ({ name: r.name ?? "Other", qty: Number(r.qty), sales: Number(r.sales) })).sort((a, b) => b.sales - a.sales);
+}
+
+/** Customers who bought the most */
+export async function topCustomers(tenantId: number, from: string, to: string, limit = 10) {
+  const rows = await db.select({ id: O.customerId, name: schema.customers.name, n: sql<number>`count(*)`, sales: sql<number>`coalesce(sum(${O.taxable}),0)` })
+    .from(O).innerJoin(schema.customers, eq(schema.customers.id, O.customerId)).where(inRange(tenantId, from, to))
+    .groupBy(O.customerId, schema.customers.name).orderBy(sql`sum(${O.taxable}) desc`).limit(limit);
+  return rows.map((r) => ({ id: Number(r.id), name: r.name, orders: Number(r.n), sales: Number(r.sales) }));
+}
+
+/** Raw material used by what was sold (from recipes): which ingredients go out the most */
+export async function materialUsage(tenantId: number, from: string, to: string) {
+  const [items, { costs, ingMap }] = await Promise.all([itemSales(tenantId, from, to), import("./costing").then((m) => m.loadCosts(tenantId))]);
+  const { effectiveRate } = await import("./costing");
+  const use = new Map<number, number>();
+  for (const it of items) {
+    const c = costs.get(it.id);
+    if (!c?.hasRecipe) continue;
+    for (const [ing, q] of c.usagePerPlate) use.set(ing, (use.get(ing) ?? 0) + q * it.qty);
+  }
+  return [...use].map(([id, qty]) => {
+    const i = ingMap.get(id);
+    return { id, name: i?.name ?? "?", unit: i?.unit ?? "", qty: Math.round(qty * 1000) / 1000, cost: i ? Math.round(qty * effectiveRate(i) * 100) / 100 : 0 };
+  }).sort((a, b) => b.cost - a.cost);
+}
+
+/** Packaging pieces used on orders */
+export async function packagingUsed(tenantId: number, from: string, to: string) {
+  const M = schema.packagingMovements, P = schema.packaging;
+  const rows = await db.select({ name: P.name, q: sql<number>`sum(-${M.qty})` }).from(M).innerJoin(P, eq(P.id, M.packagingId))
+    .where(and(eq(M.tenantId, tenantId), eq(M.type, "USE"), gte(M.date, from), lte(M.date, to))).groupBy(P.name);
+  return rows.map((r) => ({ name: r.name, qty: Number(r.q) })).filter((r) => r.qty > 0).sort((a, b) => b.qty - a.qty);
+}
+
+/** Bills not fully paid (any date), newest first - includes walk-in bills with no customer */
+export async function unpaidBills(tenantId: number, limit = 50) {
+  const paid = sql<number>`coalesce((select sum(p.amount) from payments p where p.order_id = ${O.id}),0)`;
+  const rows = await db.select({ id: O.id, billNo: O.billNo, date: O.date, total: O.total, paid, name: schema.customers.name })
+    .from(O).leftJoin(schema.customers, eq(schema.customers.id, O.customerId))
+    .where(and(eq(O.tenantId, tenantId), eq(O.status, "ACTIVE"), sql`${O.total} - ${paid} > 0.5`))
+    .orderBy(sql`${O.date} desc`, sql`${O.id} desc`).limit(limit);
+  return rows.map((r) => ({ id: r.id, billNo: r.billNo, date: r.date, name: r.name ?? "Walk-in", due: Math.round((Number(r.total) - Number(r.paid)) * 100) / 100 }));
+}
+
+/** All money still due on bills: total, number of bills, and the part from bills of `today` */
+export async function unpaidTotals(tenantId: number, today: string) {
+  const paid = sql<number>`coalesce((select sum(p.amount) from payments p where p.order_id = ${O.id}),0)`;
+  const due = sql`(${O.total} - ${paid})`;
+  const [r] = await db.select({
+    total: sql<number>`coalesce(sum(${due}),0)`, n: sql<number>`count(*)`,
+    today: sql<number>`coalesce(sum(${due}) filter (where ${O.date} = ${today}),0)`,
+    nToday: sql<number>`count(*) filter (where ${O.date} = ${today})`,
+  }).from(O).where(and(eq(O.tenantId, tenantId), eq(O.status, "ACTIVE"), sql`${due} > 0.5`));
+  return { total: Number(r.total), bills: Number(r.n), today: Number(r.today), billsToday: Number(r.nToday) };
+}

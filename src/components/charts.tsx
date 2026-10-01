@@ -59,13 +59,14 @@ export function MonthlyTrendChart({ data }: { data: { label: string; sales: numb
 }
 
 /** Horizontal magnitude bars (HTML) - for category breakdowns */
-export function HBars({ rows, color = SERIES.expenses }: { rows: { label: string; value: number; note?: string }[]; color?: string }) {
+export function HBars({ rows, color = SERIES.expenses, count = false }: { rows: { label: string; value: number; note?: string }[]; color?: string; count?: boolean }) {
+  const fmt = (v: number) => (count ? v.toLocaleString("en-IN") : inr(v));
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
     <ul className="space-y-2">
       {rows.map((r) => (
-        <li key={r.label} title={`${r.label}: ${inr(r.value)}`}>
-          <div className="flex justify-between text-xs"><span className="text-ink">{r.label}</span><span className="tabular-nums text-ink"><b>{inr(r.value)}</b>{r.note && <span className="ml-1 text-muted">{r.note}</span>}</span></div>
+        <li key={r.label} title={`${r.label}: ${fmt(r.value)}`}>
+          <div className="flex justify-between text-xs"><span className="text-ink">{r.label}</span><span className="tabular-nums text-ink"><b>{fmt(r.value)}</b>{r.note && <span className="ml-1 text-muted">{r.note}</span>}</span></div>
           <div className="mt-1 h-2 rounded-full bg-cream"><div className="h-2 rounded-full" style={{ width: `${(r.value / max) * 100}%`, background: color }} /></div>
         </li>
       ))}
