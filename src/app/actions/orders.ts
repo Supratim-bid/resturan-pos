@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { db, schema } from "@/db";
+import { customerByPhone } from "@/lib/customers";
 import { requireAction } from "@/lib/auth";
 import { canEditAnyOrder } from "@/lib/permissions";
 import { saveOrder, cancelOrder, restoreOrder, settleCancelledMoney, receiveCustomerPayment, type OrderInput } from "@/lib/orders";
@@ -150,13 +151,17 @@ export async function receivePaymentAction(customerId: number, amount: number, m
   } catch (e) { return fail(e); }
 }
 
-export async function quickCustomerAction(c: { name: string; phone: string; flat: string; area: string }): Promise<R<{ id: number; label: string }>> {
+export async function quickCustomerAction(c: { name: string; phone: string; flat: string; area: string }): Promise<R<{ id: number; label: string; existing?: boolean }>> {
   try {
     const u = await requireAction("newOrder");
     const name = c.name.trim();
-    if (!name) throw new Error("Enter the customer's name.");
+    if (!name && !c.phone.trim()) throw new Error("Enter the customer's name.");
+    // same mobile already saved -> use that customer (their saved name and address are kept)
+    const byPhone = await customerByPhone(u.tenantId, c.phone);
+    if (byPhone) return { ok: true, data: { id: byPhone.id, label: byPhone.name, existing: true } };
     const dup = await db.query.customers.findFirst({ where: and(eq(schema.customers.tenantId, u.tenantId), eq(schema.customers.name, name), eq(schema.customers.phone, c.phone.trim())) });
-    if (dup) return { ok: true, data: { id: dup.id, label: dup.name } };
+    if (dup) return { ok: true, data: { id: dup.id, label: dup.name, existing: true } };
+    if (!name) throw new Error("Enter the customer's name.");
     const [row] = await db.insert(schema.customers).values({ tenantId: u.tenantId, name, phone: c.phone.trim(), flat: c.flat.trim(), area: c.area.trim() }).returning();
     return { ok: true, data: { id: row.id, label: row.name } };
   } catch (e) { return fail(e); }

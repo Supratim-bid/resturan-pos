@@ -22,59 +22,120 @@ const addDay = (d: string, n: number) => { const x = new Date(d + "T00:00:00Z");
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const inr = (n: number, d = 0) => (n < 0 ? "−" : "") + "₹" + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 
+const d10 = (p: string) => p.replace(/\D/g, "").slice(-10);
+type FindBy = "all" | "name" | "phone" | "area";
+const FIND_BY: { k: FindBy; label: string; ph: string }[] = [
+  { k: "phone", label: "📞 Phone", ph: "Type the mobile number…" }, { k: "name", label: "Name", ph: "Type the name…" },
+  { k: "area", label: "Flat / society", ph: "Type flat or society…" }, { k: "all", label: "All", ph: "Name, phone or address…" },
+];
+
 function CustomerPicker({ customers, value, onChange, onAdded }: {
   customers: PosCustomer[]; value: number | null; onChange: (id: number | null) => void; onAdded: (c: PosCustomer) => void;
 }) {
   const [q, setQ] = useState("");
+  const [by, setBy] = useState<FindBy>("phone");
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [nc, setNc] = useState({ name: "", phone: "", flat: "", area: "" });
   const [err, setErr] = useState("");
+  const [note, setNote] = useState("");
   const [pending, start] = useTransition();
   const cur = customers.find((c) => c.id === value);
   const list = useMemo(() => {
-    const s = q.toLowerCase().trim();
-    return (s ? customers.filter((c) => (c.name + " " + c.phone + " " + c.area).toLowerCase().includes(s)) : customers).slice(0, 30);
-  }, [q, customers]);
+    const s = q.toLowerCase().trim(), dg = q.replace(/\D/g, "");
+    if (!s) return customers.slice(0, 30);
+    return customers.filter((c) =>
+      by === "name" ? c.name.toLowerCase().includes(s)
+      : by === "phone" ? !!dg && c.phone.replace(/\D/g, "").includes(dg)
+      : by === "area" ? c.area.toLowerCase().includes(s)
+      : (c.name + " " + c.phone + " " + c.area).toLowerCase().includes(s) || (!!dg && c.phone.replace(/\D/g, "").includes(dg))).slice(0, 30);
+  }, [q, by, customers]);
+  // mobile typed in full: an existing customer is picked straight away (their saved name & address); a new number opens "New customer"
+  const full = by === "phone" || by === "all" ? d10(q) : "";
+  const exact = full.length === 10 ? customers.find((c) => d10(c.phone) === full) : undefined;
+  const pick = (id: number | null) => { onChange(id); setOpen(false); setQ(""); };
+  const startNew = (prefill: Partial<typeof nc>) => { setNc({ name: "", phone: "", flat: "", area: "", ...prefill }); setErr(""); setAdding(true); setOpen(false); };
+  // live check inside the New customer form
+  const ncPhone = d10(nc.phone);
+  const ncSame = ncPhone.length === 10 ? customers.find((c) => d10(c.phone) === ncPhone) : undefined;
+  const ncName = !ncSame && nc.name.trim() && nc.area.trim()
+    ? customers.find((c) => c.name.trim().toLowerCase() === nc.name.trim().toLowerCase() && c.area.toLowerCase().includes(nc.area.trim().toLowerCase())) : undefined;
+  const ph = FIND_BY.find((f) => f.k === by)!.ph;
   return (
     <div className="relative">
       <label className="label">Customer</label>
       <div className="flex gap-2">
         <input
           className="input"
-          placeholder={cur ? cur.name : "Search name / phone / flat…"}
-          value={open ? q : cur?.name ?? ""}
+          inputMode={by === "phone" ? "tel" : undefined}
+          placeholder={cur ? cur.name : ph}
+          value={open ? q : cur ? `${cur.name}${cur.phone ? " · " + cur.phone : ""}` : ""}
           onFocus={() => { setOpen(true); setQ(""); }}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value; setQ(v); setNote("");
+            // only once the whole number is typed: 10 digits, or +91… / 0… in full
+            const raw = v.replace(/\D/g, ""), t = v.trim();
+            const need = t.startsWith("+") ? 12 : t.startsWith("0") ? 11 : 10;
+            const p = (by === "phone" || by === "all") && raw.length === need && !/[a-z]/i.test(v) ? d10(v) : "";
+            if (p.length === 10 && /^[6-9]/.test(p)) {
+              const hit = customers.find((c) => d10(c.phone) === p);
+              if (hit) { pick(hit.id); setNote(`✓ Existing customer: ${hit.name}${hit.area ? " · " + hit.area : ""}`); }
+              else startNew({ phone: p });
+            }
+          }}
         />
-        <button type="button" className="btn-ghost shrink-0" onClick={() => { setAdding(true); setNc({ name: q, phone: "", flat: "", area: "" }); }}>+ New</button>
+        <button type="button" className="btn-ghost shrink-0" onClick={() => startNew(by === "phone" ? { phone: d10(q) } : by === "area" ? { area: q } : { name: q })}>+ New</button>
       </div>
+      {note && !open && <p className="mt-1 text-xs text-emerald-700">{note}</p>}
       {open && (
-        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-line bg-white shadow-lg">
-          <button type="button" className="block w-full px-3 py-2 text-left text-sm text-muted hover:bg-cream" onMouseDown={() => onChange(null)}>No customer (walk-in)</button>
+        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-line bg-white shadow-lg">
+          <div className="sticky top-0 flex flex-wrap gap-1 border-b border-line bg-white p-2">
+            <span className="self-center text-[11px] text-muted">Find by:</span>
+            {FIND_BY.map((f) => (
+              <button type="button" key={f.k} onMouseDown={(e) => { e.preventDefault(); setBy(f.k); setQ(""); }}
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${by === f.k ? "bg-brand text-white" : "bg-cream text-ink"}`}>{f.label}</button>
+            ))}
+          </div>
+          <button type="button" className="block w-full px-3 py-2 text-left text-sm text-muted hover:bg-cream" onMouseDown={() => pick(null)}>No customer (walk-in)</button>
+          {exact && <div className="bg-emerald-50 px-3 py-1 text-xs text-emerald-800">Already a customer:</div>}
           {list.map((c) => (
-            <button type="button" key={c.id} className="block w-full px-3 py-2 text-left text-sm hover:bg-cream" onMouseDown={() => onChange(c.id)}>
-              <span className="font-medium">{c.name}</span> <span className="text-xs text-muted">{c.phone} {c.area}</span>
+            <button type="button" key={c.id} className="block w-full px-3 py-2 text-left text-sm hover:bg-cream" onMouseDown={() => pick(c.id)}>
+              <span className="font-medium">{c.name}</span> <span className="text-xs text-muted">{c.phone}{c.area ? ` · ${c.area}` : ""}</span>
             </button>
           ))}
-          {!list.length && <div className="px-3 py-2 text-sm text-muted">No match - tap “+ New”</div>}
+          {!list.length && <div className="px-3 py-2 text-sm text-muted">No match - {by === "phone" ? "type all 10 digits to add them" : "tap “+ New”"}</div>}
         </div>
       )}
       <Modal open={adding} onClose={() => setAdding(false)} title="New customer">
         <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2"><label className="label">Name *</label><input className="input" value={nc.name} onChange={(e) => setNc({ ...nc, name: e.target.value })} /></div>
-          <div className="col-span-2"><label className="label">Phone</label><input className="input" type="tel" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} /></div>
+          <div className="col-span-2"><label className="label">Mobile</label><input className="input" type="tel" inputMode="tel" autoFocus={!nc.phone} value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} />
+            {ncSame ? (
+              <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Already saved as <b>{ncSame.name}</b>{ncSame.area ? ` · ${ncSame.area}` : ""}.
+                <button type="button" className="btn-primary btn-sm ml-2" onClick={() => { pick(ncSame.id); setAdding(false); setNote(`✓ Existing customer: ${ncSame.name}`); }}>Use {ncSame.name}</button>
+              </div>
+            ) : ncPhone.length === 10 && <p className="mt-1 text-[11px] text-emerald-700">✓ New number - fill in the details and save.</p>}
+          </div>
+          <div className="col-span-2"><label className="label">Name *</label><input className="input" autoFocus={!!nc.phone} value={nc.name} onChange={(e) => setNc({ ...nc, name: e.target.value })} /></div>
           <div><label className="label">Flat / House</label><input className="input" value={nc.flat} onChange={(e) => setNc({ ...nc, flat: e.target.value })} /></div>
           <div><label className="label">Society / Area</label><input className="input" value={nc.area} onChange={(e) => setNc({ ...nc, area: e.target.value })} /></div>
+          {ncName && (
+            <div className="col-span-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Same name in that society: <b>{ncName.name}</b> {ncName.phone && `· ${ncName.phone}`}.
+              <button type="button" className="btn-ghost btn-sm ml-2" onClick={() => { pick(ncName.id); setAdding(false); }}>Use them</button>
+            </div>
+          )}
         </div>
         {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
-        <button className="btn-primary mt-4 w-full" disabled={pending} onClick={() => start(async () => {
+        <button className="btn-primary mt-4 w-full" disabled={pending || !!ncSame} onClick={() => start(async () => {
           setErr("");
           const r = await quickCustomerAction(nc);
           if (!r.ok) return setErr(r.error);
-          const c = { id: r.data!.id, name: r.data!.label, phone: nc.phone, area: nc.area };
-          onAdded(c); onChange(c.id); setAdding(false);
+          const c = { id: r.data!.id, name: r.data!.label, phone: nc.phone, area: [nc.flat, nc.area].filter(Boolean).join(", ") };
+          if (!customers.some((x) => x.id === c.id)) onAdded(c);
+          pick(c.id); setAdding(false);
+          setNote(r.data!.existing ? `✓ Existing customer: ${r.data!.label}` : `✓ Saved new customer: ${c.name}`);
         })}>{pending ? "Saving…" : "Save customer"}</button>
       </Modal>
     </div>

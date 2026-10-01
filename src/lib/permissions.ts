@@ -9,6 +9,7 @@ export const MODULES = {
   preorders:  { label: "Pre-orders",         href: "/preorders" },
   onlineOrders: { label: "Online Orders",    href: "/online-orders" },
   kot:        { label: "Kitchen (KOT)",      href: "/kot" },
+  delivery:   { label: "Delivery",           href: "/delivery" },
   customers:  { label: "Customers & Dues",   href: "/customers" },
   dailyMenu:  { label: "Today's Menu",       href: "/daily-menu" },
   menu:       { label: "Menu",               href: "/menu" },
@@ -44,7 +45,7 @@ export const ALL_PERMS = [...Object.keys(MODULES), ...Object.keys(POWERS)] as Pe
 export const ROLE_DEFAULTS: Record<Role, PermKey[]> = {
   OWNER: ALL_PERMS,
   MANAGER: ALL_PERMS.filter((k) => k !== "reports" && k !== "settings" && k !== "approveCancel" && k !== "money"),
-  CASHIER: ["newOrder", "orders", "preorders", "onlineOrders", "customers", "dailyMenu", "expenses", "cash"],
+  CASHIER: ["newOrder", "orders", "preorders", "onlineOrders", "customers", "dailyMenu", "expenses", "cash", "delivery"],
   KITCHEN: ["kot", "preorders", "dailyMenu", "recipes", "stock", "wastage"],
 };
 

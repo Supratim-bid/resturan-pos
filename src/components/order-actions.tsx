@@ -170,9 +170,18 @@ export function PayLinkPanel({ orderId, link, linkStatus, due, phone, restaurant
 /** Staff shows a QR on their phone / counter screen for the customer to scan and pay.
  *  - "Card / UPI link" (when a gateway is set up): the gateway's payment page; paid is detected automatically.
  *  - "Our UPI QR": any UPI app pays straight to the restaurant; staff tap "Received" after checking. */
-export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upiMode, today, restaurant, billNo }: {
+const upiId = (t: string) => { try { return new URL(t.replace("upi://", "https://x/")).searchParams.get("pa") ?? ""; } catch { return ""; } };
+type QrActions = {
+  create: (orderId: number) => Promise<{ ok: true; data?: string } | { ok: false; error: string }>;
+  check: (orderId: number) => Promise<{ ok: true; data?: string } | { ok: false; error: string }>;
+  receive: (orderId: number, amount: number, mode: string, date: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+};
+export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upiMode, today, restaurant, billNo, actions, label }: {
   orderId: number; due: number; gateway: string; upiText: string; qrImage: string; upiMode: string; today: string; restaurant: string; billNo: string;
+  /** the Delivery tab passes its own actions (delivery staff may not have the Orders tab) */
+  actions?: QrActions; label?: string;
 }) {
+  const act: QrActions = actions ?? { create: (id) => createPayLinkAction(id), check: checkPayLinkAction, receive: addPaymentAction };
   const [open, setOpen] = useState(false);
   // amount + UPI QR frozen while the QR is showing (the bill page updates underneath when it's paid)
   const [due, setDue] = useState(dueNow);
@@ -199,7 +208,7 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
       return () => { alive.current = false; };
     }
     setState("loading");
-    createPayLinkAction(orderId).then(async (r) => {
+    act.create(orderId).then(async (r) => {
       if (!alive.current) return;
       if (!r.ok) { setState("error"); setErr(r.error); return; }
       setUrl(r.data!); setImg(await QRCode.toDataURL(r.data!, { width: 520, margin: 1 })); setState("waiting");
@@ -212,7 +221,7 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
     if (!open || tab !== "link" || state !== "waiting") return;
     const t = setInterval(async () => {
       if (document.visibilityState !== "visible") return;
-      const r = await checkPayLinkAction(orderId);
+      const r = await act.check(orderId);
       if (r.ok && r.data === "paid" && alive.current) setState("paid"); // page refreshes when the modal is closed
     }, 4000);
     return () => clearInterval(t);
@@ -222,7 +231,7 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
   const waText = `${restaurant} - Bill ${billNo}\nAmount due: ₹${due}\nPay here: ${url}`;
   return (
     <>
-      <button type="button" className="btn-primary btn-sm" onClick={() => { setDue(dueNow); setSnap({ upiText, qrImage }); setState(""); setOpen(true); }}>📱 Show QR to scan · ₹{dueNow}</button>
+      <button type="button" className="btn-primary btn-sm" onClick={() => { setDue(dueNow); setSnap({ upiText, qrImage }); setState(""); setOpen(true); }}>{label ?? "📱 Show QR to scan"} · ₹{dueNow}</button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3" role="dialog" aria-label="Scan to pay">
           <div className="w-full max-w-sm space-y-3 rounded-2xl bg-white p-4 text-center">
@@ -230,7 +239,10 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
               <b>Bill {billNo}</b>
               <button type="button" className="btn-ghost btn-sm" onClick={() => { setOpen(false); setState(""); router.refresh(); }}>Close</button>
             </div>
-            {gateway && <div className="text-xs font-semibold text-muted">Pay through {gateway} · checked automatically</div>}
+            {/* which QR this is, so staff know whether to check their UPI app */}
+            {gateway ? <div className="inline-block rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">{gateway} QR · payment checked automatically</div>
+              : snap.qrImage && !snap.upiText ? <div className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">Static QR (your uploaded QR) · customer types the amount</div>
+              : <div className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">UPI QR{upiId(snap.upiText) ? ` · ${upiId(snap.upiText)}` : ""} · amount filled in</div>}
             <div className="text-3xl font-bold tabular-nums">₹{due}</div>
             {state === "paid" ? (
               <div className="rounded-xl bg-emerald-50 py-10 text-emerald-800"><div className="text-5xl">✓</div><div className="mt-2 text-lg font-bold">Paid - recorded on the bill</div></div>
@@ -250,7 +262,7 @@ export function CollectQr({ orderId, due: dueNow, gateway, upiText, qrImage, upi
               <>
                 <p className="text-xs text-muted">Customer scans with <b>any UPI app</b> (GPay, PhonePe, Paytm, BHIM){snap.upiText ? " - the amount is filled in" : " and types the amount"}. Check your UPI app, then:</p>
                 <button type="button" className="btn-primary w-full" disabled={pending} onClick={() => start(async () => {
-                  setErr(""); const r = await addPaymentAction(orderId, due, upiMode, today);
+                  setErr(""); const r = await act.receive(orderId, due, upiMode, today);
                   if (!r.ok) setErr(r.error); else setState("paid");
                 })}>{pending ? "Saving…" : `✓ Received ₹${due} by UPI`}</button>
                 {err && <p className="text-xs text-red-700">{err}</p>}

@@ -137,7 +137,9 @@ export const settings = pgTable("settings", {
   onlineDeliveryType: text("online_delivery_type").notNull().default("Delivery"), // order type used when accepting
   onlineTakeawayType: text("online_takeaway_type").notNull().default("Takeaway"),
   // stopping fake orders (online orders are always paid by UPI first)
-  onlinePayMarkup: money("online_pay_markup").notNull().default(0),          // % added to dish prices when the customer pays online (gateway) - shown as the price, not a fee
+  onlinePayMarkup: money("online_pay_markup").notNull().default(0),
+  pickupDiscountOn: boolean("pickup_discount_on").notNull().default(false),   // online pickup orders get a discount (shown as a discount on the bill)
+  pickupDiscountPct: money("pickup_discount_pct").notNull().default(0),          // % added to dish prices when the customer pays online (gateway) - shown as the price, not a fee
   onlineNewMax: money("online_new_max").notNull().default(0),                // max first order from a new number (0 = no limit)
   onlinePayUpi: boolean("online_pay_upi").notNull().default(true),   // customer can pay now by UPI
   onlinePayCash: boolean("online_pay_cash").notNull().default(false), // customer can pay cash on delivery / at pickup
@@ -434,6 +436,7 @@ export const onlineOrders = pgTable("online_orders", {
   payLinkUrl: text("pay_link_url").notNull().default(""),
   payLinkStatus: text("pay_link_status").notNull().default(""),
   payLinkProvider: text("pay_link_provider").notNull().default(""),
+  discount: money("discount").notNull().default(0),                      // pickup discount given on this order (goes on the bill as a discount)
   phoneCheck: text("phone_check").notNull().default(""), // "ok:instamojo" / "invalid:instamojo" - did the payment gateway accept the mobile?
   paidOnline: money("paid_online").notNull().default(0),          // amount the gateway confirmed
   device: text("device").notNull().default(""),               // hash of the customer's browser id (for "My orders")

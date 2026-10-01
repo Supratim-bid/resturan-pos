@@ -55,11 +55,13 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
   // prices follow the chosen way to pay: "Pay online now" can carry the restaurant's online-payment price (same rounding as the server)
   const priceFor = (price: number, way: "UPI" | "COD") => way === "UPI" && config.payMarkup > 0 ? Math.round(price * (1 + config.payMarkup / 100)) : price;
   const px = (price: number) => priceFor(price, pay);
-  const totalFor = (way: "UPI" | "COD") => { const it = r2(lines.reduce((s, l) => s + l.qty * priceFor(l.price, way), 0)); const dl = kind === "DELIVERY" ? config.deliveryCharge : 0; return Math.round(it + dl + r2(((it + dl) * config.gstRate) / 100)); };
+  const pickOff = (it: number) => kind === "TAKEAWAY" && config.pickupDiscount > 0 ? Math.round((it * config.pickupDiscount) / 100) : 0; // same rounding as the server
+  const totalFor = (way: "UPI" | "COD") => { const it = r2(lines.reduce((s, l) => s + l.qty * priceFor(l.price, way), 0)); const dl = kind === "DELIVERY" ? config.deliveryCharge : 0; const tx = Math.max(0, it - pickOff(it) + dl); return Math.round(tx + r2((tx * config.gstRate) / 100)); };
   const itemsTotal = r2(lines.reduce((s, l) => s + l.qty * px(l.price), 0));
   const delivery = kind === "DELIVERY" ? config.deliveryCharge : 0;
-  const gst = r2(((itemsTotal + delivery) * config.gstRate) / 100);
-  const total = Math.round(itemsTotal + delivery + gst);
+  const discount = pickOff(itemsTotal);
+  const gst = r2((Math.max(0, itemsTotal - discount + delivery) * config.gstRate) / 100);
+  const total = Math.round(Math.max(0, itemsTotal - discount + delivery) + gst);
   const belowMin = config.minOrder > 0 && itemsTotal < config.minOrder;
   const setQty = (id: number, n: number) => setCart((c) => { const x = { ...c }; if (n > 0) x[id] = Math.min(50, n); else delete x[id]; return x; });
 
@@ -113,7 +115,7 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
             <h2 className="font-bold">How do you want it?</h2>
             <div className="grid grid-cols-2 gap-2">
               {config.delivery && <button className={`rounded-xl border-2 py-2.5 text-sm font-bold ${kind === "DELIVERY" ? "border-brand bg-brand text-white" : "border-line bg-white"}`} onClick={() => setKind("DELIVERY")}>🛵 Delivery</button>}
-              {config.takeaway && <button className={`rounded-xl border-2 py-2.5 text-sm font-bold ${kind === "TAKEAWAY" ? "border-brand bg-brand text-white" : "border-line bg-white"}`} onClick={() => setKind("TAKEAWAY")}>🥡 Pick up</button>}
+              {config.takeaway && <button className={`rounded-xl border-2 py-2.5 text-sm font-bold ${kind === "TAKEAWAY" ? "border-brand bg-brand text-white" : "border-line bg-white"}`} onClick={() => setKind("TAKEAWAY")}>🥡 Pick up{config.pickupDiscount > 0 && <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${kind === "TAKEAWAY" ? "bg-white/25" : "bg-emerald-100 text-emerald-800"}`}>{config.pickupDiscount}% off</span>}</button>}
             </div>
             {config.preorder && (
               <div className="grid grid-cols-2 gap-2">
@@ -175,6 +177,7 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
 
           <section className="card space-y-1 text-sm">
             <div className="flex justify-between"><span>Items</span><span className="tabular-nums">{inr(itemsTotal, 2)}</span></div>
+            {discount > 0 && <div className="flex justify-between text-emerald-700"><span>Pickup discount {config.pickupDiscount}%</span><span className="tabular-nums">−{inr(discount, 2)}</span></div>}
             {delivery > 0 && <div className="flex justify-between"><span>Delivery</span><span className="tabular-nums">{inr(delivery, 2)}</span></div>}
             {gst > 0 && <div className="flex justify-between"><span>GST {config.gstRate}%</span><span className="tabular-nums">{inr(gst, 2)}</span></div>}
             <div className="flex justify-between border-t border-line pt-1 text-base font-bold"><span>Total</span><span className="tabular-nums">{inr(total)}</span></div>

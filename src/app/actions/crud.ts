@@ -7,6 +7,7 @@ import { ENTITIES, type EntityKey } from "@/lib/entities";
 import { loadCosts, effectiveRate } from "@/lib/costing";
 import { round2 } from "@/lib/format";
 import { deleteImageIfUnused } from "./images";
+import { customerByPhone, phone10 } from "@/lib/customers";
 
 const TABLES = {
   customers: schema.customers, categories: schema.categories, menuItems: schema.menuItems, ingredients: schema.ingredients,
@@ -108,6 +109,12 @@ export async function saveRecord(key: EntityKey, id: number | null, input: Recor
     if (key === "wastage" && data.menuItemId && !data.plates) throw new Error("Enter how many plates.");
     if (key === "expenses" && data.ingredientId && !data.qty) throw new Error("Enter the quantity bought, so stock updates.");
     if (key === "ingredients") data.updatedAt = new Date();
+    const oldPhone = key === "customers" && id ? (await db.query.customers.findFirst({ where: and(eq(schema.customers.id, id), eq(schema.customers.tenantId, tenantId)), columns: { phone: true } }))?.phone ?? "" : "";
+    if (key === "customers" && data.phone && phone10(String(data.phone)) !== phone10(oldPhone)) {
+      // one customer per mobile number: the earlier record (and its name) is kept
+      const dup = await customerByPhone(tenantId, String(data.phone), id);
+      if (dup) throw new Error(`This mobile number is already saved for “${dup.name}”${dup.area ? ` (${dup.area})` : ""}. Open that customer instead.`);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const table = TABLES[key] as any;
     let rid = id;

@@ -120,6 +120,13 @@
       "when": 1790841729040,
       "tag": "0016_online_pay_markup",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790843881752,
+      "tag": "0017_pickup_discount",
+      "breakpoints": true
     }
   ]
 }

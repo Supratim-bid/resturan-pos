@@ -75,10 +75,13 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold">{o.billNo}</span>
-                  <Badge tone="brand">{o.orderType}</Badge>
+                  {/* order TYPE (how it's served) - not its status */}
+                  <span className="text-xs font-semibold text-muted">{/deliver/i.test(o.orderType) ? "🛵" : /take|pick|parcel/i.test(o.orderType) ? "🥡" : /dine/i.test(o.orderType) ? "🍽️" : "🧾"} {o.orderType}</span>
                   {o.status === "CANCELLED" && <Badge tone="gray">Cancelled</Badge>}
                   {o.cancelStatus === "REQUESTED" && <Badge tone="amber">Cancel requested</Badge>}
                   {o.isPreorder && <Badge tone="amber">🗓️ {o.mealSlot || "Pre-order"}</Badge>}
+                  {!o.isPreorder && o.status === "ACTIVE" && o.fulfilStatus === "DELIVERED" && <Badge tone="green">✓ Delivered</Badge>}
+                  {o.isPreorder && o.status === "ACTIVE" && (o.fulfilStatus === "DELIVERED" ? <Badge tone="green">✓ Delivered</Badge> : o.fulfilStatus === "READY" ? <Badge tone="brand">Ready</Badge> : <Badge tone="gray">⏳ Pending</Badge>)}
                 </div>
                 <div className="truncate text-sm">{o.customer?.name ?? "Walk-in"}{o.tableNo ? ` · Table ${o.tableNo}` : ""}</div>
                 <div className="truncate text-xs text-muted">{fmtDate(o.date)} · {o.items.map((i) => `${i.name}×${Number(i.qty)}`).join(", ")}</div>

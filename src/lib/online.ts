@@ -45,6 +45,7 @@ export async function loadStorefront(codeRaw: string) {
       payUpi, payCash, payGateway: !!gateway,
       // % added to dish prices for "Pay online now" (only with a gateway)
       payMarkup: gateway && payUpi ? Math.max(0, Math.min(25, Number(s.onlinePayMarkup) || 0)) : 0,
+      pickupDiscount: s.onlineTakeaway ? pickupPct(s) : 0,
       otp: s.onlineOtp && smsReady(),
       newMax: Number(s.onlineNewMax),
       mealSlots: slots.length ? slots : ["Breakfast", "Lunch", "Evening Snacks", "Dinner"],
@@ -76,9 +77,16 @@ export async function priceCart(tenantId: number, cart: { menuItemId: number; qt
     lines.push({ menuItemId: m.id, name: m.name, qty, rate: onlinePrice(Number(m.price), opts.markup ?? 0) });
   }
   const deliveryCharge = opts.delivery ? Number(s.defaultDeliveryCharge) : 0;
-  const t = calcTotals(lines.map((l) => ({ qty: l.qty, rate: l.rate, discount: 0 })), { orderDiscount: 0, deliveryCharge, packingCharge: 0, gstRate: Number(s.gstRate) });
-  return { lines, itemsTotal: t.itemsTotal, deliveryCharge: round2(deliveryCharge), gst: t.gstAmount, total: t.total, s };
+  const itemsRaw = lines.reduce((a, l) => a + l.qty * l.rate, 0);
+  // pickup discount (whole rupees), only when the restaurant switched it on
+  const pct = pickupPct(s);
+  const discount = !opts.delivery && pct > 0 ? Math.round((itemsRaw * pct) / 100) : 0;
+  const t = calcTotals(lines.map((l) => ({ qty: l.qty, rate: l.rate, discount: 0 })), { orderDiscount: discount, deliveryCharge, packingCharge: 0, gstRate: Number(s.gstRate) });
+  return { lines, itemsTotal: t.itemsTotal, discount, discountPct: discount ? pct : 0, deliveryCharge: round2(deliveryCharge), gst: t.gstAmount, total: t.total, s };
 }
+
+/** Pickup discount % in force (0 = off) */
+export const pickupPct = (s: { pickupDiscountOn: boolean; pickupDiscountPct: unknown }) => s.pickupDiscountOn ? Math.max(0, Math.min(50, Number(s.pickupDiscountPct) || 0)) : 0;
 
 /** Dish price when the customer pays online and the restaurant adds a % for it (whole rupees, never lower) */
 export const onlinePrice = (price: number, markup: number) => markup > 0 ? Math.round(price * (1 + markup / 100)) : price;

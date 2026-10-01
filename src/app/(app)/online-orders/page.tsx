@@ -132,6 +132,7 @@ export default async function OnlineOrders({ searchParams }: { searchParams: Pro
               onlineMinOrder: String(Number(s?.onlineMinOrder ?? 0)), onlineNote: s?.onlineNote ?? "", onlineClosedMsg: s?.onlineClosedMsg ?? "",
               onlineNewMax: String(Number(s?.onlineNewMax ?? 0)),
               onlinePayMarkup: String(Number(s?.onlinePayMarkup ?? 0)),
+              pickupDiscountOn: String(!!s?.pickupDiscountOn), pickupDiscountPct: String(Number(s?.pickupDiscountPct ?? 0)),
               onlinePayUpi: String(s?.onlinePayUpi ?? true), onlinePayCash: String(s?.onlinePayCash ?? false), onlineOtp: String(s?.onlineOtp ?? false),
               onlineDeliveryType: s?.onlineDeliveryType ?? "Delivery", onlineTakeawayType: s?.onlineTakeawayType ?? "Takeaway", onlineOpen: String(s?.onlineOpen ?? true),
             }} hasUpi={!!(s?.upiId || s?.qrImageId)} smsReady={smsReady()} />

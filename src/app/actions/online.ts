@@ -101,7 +101,7 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
       tenantId: tenant.id, token, customerId: cust.id, name, phone: p10,
       address: kind === "DELIVERY" ? [flat, area].filter(Boolean).join(", ") : "",
       kind, isPreorder: !!v.isPreorder, date, mealSlot, slotTime,
-      items: JSON.stringify(priced.lines), estTotal: priced.total, payMethod, notes: clean(v.notes, 300), ip,
+      items: JSON.stringify(priced.lines), estTotal: priced.total, discount: priced.discount, payMethod, notes: clean(v.notes, 300), ip,
       device: deviceHash(tenant.id, dev),
     });
     await recordFailure([{ key: keys[0], limit: 10 }, { key: keys[1], limit: 5 }]); // counts orders, not failures
@@ -215,13 +215,13 @@ export async function acceptOnlineOrderAction(id: number, upiReceived: boolean):
       const lines = JSON.parse(claimed.items) as OnlineLine[];
       const delivery = claimed.kind === "DELIVERY";
       const orderType = delivery ? await orderTypeFor(u.tenantId, s?.onlineDeliveryType || "Delivery", /deliver/i) : await orderTypeFor(u.tenantId, s?.onlineTakeawayType || "Takeaway", /take|pick/i);
-      const notes = [`Online order (${claimed.phone})`, delivery && claimed.address ? `Deliver to: ${claimed.address}` : "", claimed.notes].filter(Boolean).join(" · ").slice(0, 500);
+      const notes = [`Online order (${claimed.phone})`, Number(claimed.discount) > 0 ? "Pickup discount" : "", delivery && claimed.address ? `Deliver to: ${claimed.address}` : "", claimed.notes].filter(Boolean).join(" · ").slice(0, 500);
       const orderId = await saveOrder(u.tenantId, {
         date: claimed.date < todayIST() ? todayIST() : claimed.date,
         customerId: claimed.customerId, orderType,
         // keep the price the customer saw (includes the online-payment price when they paid online)
         items: lines.map((l) => ({ menuItemId: l.menuItemId, qty: l.qty, discount: 0, rate: Number(l.rate) })),
-        deliveryCharge: delivery ? Number(s?.defaultDeliveryCharge ?? 0) : 0, packingCharge: 0, orderDiscount: 0,
+        deliveryCharge: delivery ? Number(s?.defaultDeliveryCharge ?? 0) : 0, packingCharge: 0, orderDiscount: Number(claimed.discount ?? 0),
         notes, isPreorder: claimed.isPreorder, mealSlot: claimed.mealSlot, slotTime: claimed.slotTime,
         kot: u.features.includes("kot"),
       }, u.id);
@@ -268,6 +268,9 @@ export async function saveOnlineSettingsAction(v: Record<string, string>): Promi
     const u = await requireAction("settings");
     const min = Number(v.onlineMinOrder || 0);
     if (!Number.isFinite(min) || min < 0) throw new Error("Minimum order must be a number.");
+    const pickPct = Number(v.pickupDiscountPct || 0);
+    if (!Number.isFinite(pickPct) || pickPct < 0 || pickPct > 50) throw new Error("Pickup discount must be between 0 and 50 %.");
+    if (v.pickupDiscountOn === "true" && !(pickPct > 0)) throw new Error("Enter the pickup discount % (or switch it off).");
     const markup = Number(v.onlinePayMarkup || 0);
     if (!Number.isFinite(markup) || markup < 0 || markup > 25) throw new Error("Online payment price increase must be between 0 and 25 %.");
     const newMax = Number(v.onlineNewMax || 0);
@@ -276,7 +279,7 @@ export async function saveOnlineSettingsAction(v: Record<string, string>): Promi
     await db.update(schema.settings).set({
       onlineOpen: v.onlineOpen === "true", onlineClosedMsg: clean(v.onlineClosedMsg, 200), onlineNote: clean(v.onlineNote, 300),
       onlineDelivery: v.onlineDelivery === "true", onlineTakeaway: v.onlineTakeaway === "true", onlinePreorder: v.onlinePreorder === "true",
-      onlineMinOrder: round2(min), onlineNewMax: round2(newMax), onlinePayMarkup: round2(markup),
+      onlineMinOrder: round2(min), onlineNewMax: round2(newMax), onlinePayMarkup: round2(markup), pickupDiscountOn: v.pickupDiscountOn === "true", pickupDiscountPct: round2(pickPct),
       onlinePayUpi: v.onlinePayUpi === "true", onlinePayCash: v.onlinePayCash === "true", onlineOtp: v.onlineOtp === "true" && smsReady(),
       onlineDeliveryType: clean(v.onlineDeliveryType, 40) || "Delivery", onlineTakeawayType: clean(v.onlineTakeawayType, 40) || "Takeaway",
     }).where(eq(schema.settings.tenantId, u.tenantId));

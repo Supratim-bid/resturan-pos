@@ -41,6 +41,8 @@ export default async function Customers() {
       <CrudManager
         entity="customers" title="customer" fields={f} options={opts} rows={data} path="/customers" rowHref="/customers" addLabel="Customer"
         searchKeys={["name", "phone", "flat", "area"]}
+        filters={[{ key: "name", label: "Name" }, { key: "phone", label: "Phone" }, { key: ["flat", "area"], label: "Flat / society / address" }]}
+        checkDuplicates
         columns={[
           { key: "name", label: "Name", primary: true },
           { key: "phone", label: "Phone" },

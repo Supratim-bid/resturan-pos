@@ -74,11 +74,37 @@ export function FieldInput({ f, value, onChange, options }: { f: FieldDef; value
   );
 }
 
+const digits10 = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(-10);
+const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Customers already saved that look like the one being typed: same mobile, or same name in the same society */
+function DuplicateHint({ vals, existing, id, href }: { vals: Record<string, unknown>; existing: Row[]; id?: number | null; href?: string }) {
+  const p = digits10(vals.phone);
+  const byPhone = p.length === 10 ? existing.filter((r) => r.id !== id && digits10(r.phone) === p) : [];
+  const n = norm(vals.name), a = norm(vals.area);
+  const byName = n && a ? existing.filter((r) => r.id !== id && !byPhone.includes(r) && norm(r.name) === n && norm(r.area) === a) : [];
+  if (!byPhone.length && !byName.length) return p.length === 10 && !id ? <p className="mt-1 text-[11px] text-emerald-700">✓ New mobile number - a new customer will be saved.</p> : null;
+  const item = (r: Row) => (
+    <li key={r.id} className="flex flex-wrap items-center justify-between gap-2">
+      <span><b>{String(r.name)}</b> <span className="text-muted">{[r.phone, r.flat, r.area].filter(Boolean).join(" · ")}</span></span>
+      {href && <a className="btn-ghost btn-sm" href={`${href}/${r.id}`}>Open</a>}
+    </li>
+  );
+  return (
+    <div className="mt-2 space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      {byPhone.length > 0 && <div><p className="font-semibold">This mobile number is already saved:</p><ul className="mt-1 space-y-1">{byPhone.map(item)}</ul><p className="mt-1 text-xs">Use that customer - their saved name and address are kept.</p></div>}
+      {byName.length > 0 && <div><p className="font-semibold">Same name in the same society:</p><ul className="mt-1 space-y-1">{byName.map(item)}</ul><p className="mt-1 text-xs">If it&apos;s the same person, open them instead of adding again.</p></div>}
+    </div>
+  );
+}
+
 export function RecordForm({
-  entity, fields, options, initial, id, onDone, path, submitLabel = "Save",
+  entity, fields, options, initial, id, onDone, path, submitLabel = "Save", existing, existingHref,
 }: {
   entity: EntityKey; fields: FieldDef[]; options: Record<string, Option[]>; initial?: Record<string, unknown>;
   id?: number | null; onDone: () => void; path?: string; submitLabel?: string;
+  /** customers: check what is typed against these, as you type */
+  existing?: Row[]; existingHref?: string;
 }) {
   const [vals, setVals] = useState<Record<string, unknown>>(() => {
     const o: Record<string, unknown> = {};
@@ -106,6 +132,7 @@ export function RecordForm({
             {f.type !== "checkbox" && <label className="label">{f.label}{f.required && <span className="text-red-600"> *</span>}</label>}
             <FieldInput f={f} value={vals[f.name]} options={options[f.name]} onChange={(v) => setVals((s) => ({ ...s, [f.name]: v }))} />
             {f.help && <p className="mt-1 text-[11px] text-muted">{f.help}</p>}
+            {existing && f.name === "phone" && <DuplicateHint vals={vals} existing={existing} id={id} href={existingHref} />}
           </div>
         ))}
       </div>
@@ -154,31 +181,58 @@ function cell(c: Column, r: Row) {
 
 /** List + add/edit/delete for a simple record type. Mobile shows cards, desktop a table. */
 export function CrudManager({
-  entity, fields, options, rows, columns, title, path, canEdit = true, canDelete = true, rowHref, addLabel, searchKeys, emptyText, defaults,
+  entity, fields, options, rows, columns, title, path, canEdit = true, canDelete = true, rowHref, addLabel, searchKeys, emptyText, defaults, filters, checkDuplicates = false,
 }: {
   entity: EntityKey; fields: FieldDef[]; options: Record<string, Option[]>; rows: Row[]; columns: Column[]; title: string;
   path?: string; canEdit?: boolean; canDelete?: boolean; rowHref?: string; addLabel?: string; searchKeys?: string[]; emptyText?: string;
   defaults?: Record<string, unknown>;
+  /** separate search boxes, e.g. Name / Phone / Address (a key list = match any of those fields) */
+  filters?: { key: string | string[]; label: string }[];
+  /** warn while typing when the record looks like one already saved (customers) */
+  checkDuplicates?: boolean;
 }) {
+  const [fv, setFv] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<Row | null | "new">(null);
   const [q, setQ] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
   const shown = useMemo(() => {
+    if (filters?.length) {
+      const act = filters.filter((f) => (fv[f.label] ?? "").trim());
+      if (!act.length) return rows;
+      return rows.filter((r) => act.every((f) => {
+        const want = fv[f.label].trim().toLowerCase();
+        const keys = Array.isArray(f.key) ? f.key : [f.key];
+        const wantDigits = want.replace(/\D/g, "");
+        return keys.some((k) => {
+          const v = String(r[k] ?? "");
+          // phone-like search: compare digits only (ignores spaces, +91)
+          if (wantDigits && wantDigits === want.replace(/[\s+-]/g, "")) return v.replace(/\D/g, "").includes(wantDigits);
+          return v.toLowerCase().includes(want);
+        });
+      }));
+    }
     if (!q.trim()) return rows;
     const s = q.toLowerCase();
     const keys = searchKeys ?? columns.map((c) => c.key);
     return rows.filter((r) => keys.some((k) => String(r[k] ?? "").toLowerCase().includes(s)));
-  }, [q, rows, columns, searchKeys]);
+  }, [q, fv, filters, rows, columns, searchKeys]);
   const primary = columns.find((c) => c.primary) ?? columns[0];
   const imgCol = columns.find((c) => c.kind === "image");
 
   return (
     <div>
-      <div className="mb-3 flex gap-2">
-        {rows.length > 6 && <input className="input" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {filters?.length ? (
+          <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-3">
+            {filters.map((f) => (
+              <input key={f.label} className="input" placeholder={`🔎 ${f.label}`} aria-label={`Filter by ${f.label}`} value={fv[f.label] ?? ""} onChange={(e) => setFv((x) => ({ ...x, [f.label]: e.target.value }))} />
+            ))}
+          </div>
+        ) : rows.length > 6 && <input className="input" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />}
         {canEdit && <button className="btn-primary shrink-0" onClick={() => setEditing("new")}>+ {addLabel ?? "Add"}</button>}
       </div>
+      {filters?.length && Object.values(fv).some((x) => x.trim()) ? <p className="-mt-1 mb-2 text-xs text-muted">{shown.length} of {rows.length} shown · <button type="button" className="underline" onClick={() => setFv({})}>clear filters</button></p> : null}
       {shown.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">{emptyText ?? "Nothing here yet."}</div>
       ) : (
@@ -249,6 +303,8 @@ export function CrudManager({
               initial={editing === "new" ? defaults : editing}
               onDone={() => setEditing(null)}
               path={path}
+              existing={checkDuplicates ? rows : undefined}
+              existingHref={rowHref}
             />
             {editing !== "new" && canDelete && (
               <button

@@ -8,11 +8,11 @@ import { logout } from "../actions/auth";
 import { db, schema } from "@/db";
 
 const ICONS: Record<ModuleKey, string> = {
-  dashboard: "🏠", newOrder: "＋", orders: "🧾", preorders: "🗓️", onlineOrders: "📲", kot: "🍳", customers: "👥", dailyMenu: "📅", menu: "🍛", recipes: "📖",
+  dashboard: "🏠", newOrder: "＋", orders: "🧾", preorders: "🗓️", onlineOrders: "📲", kot: "🍳", delivery: "🏍️", customers: "👥", dailyMenu: "📅", menu: "🍛", recipes: "📖",
   ingredients: "🧅", packaging: "📦", stock: "🏷️", wastage: "🗑️", expenses: "💸", vendors: "🚚", staff: "👨‍🍳",
   cash: "💰", money: "🏦", settlements: "🛵", reports: "📊", reminders: "⏰", settings: "⚙️",
 };
-const SHORT: Partial<Record<ModuleKey, string>> = { kot: "Kitchen", onlineOrders: "Online", preorders: "Pre-orders", newOrder: "New", dashboard: "Home", dailyMenu: "Today", orders: "Orders", customers: "Customers", cash: "Cash" };
+const SHORT: Partial<Record<ModuleKey, string>> = { kot: "Kitchen", delivery: "Delivery", onlineOrders: "Online", preorders: "Pre-orders", newOrder: "New", dashboard: "Home", dailyMenu: "Today", orders: "Orders", customers: "Customers", cash: "Cash" };
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -20,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const allowed = (Object.keys(MODULES) as ModuleKey[]).filter((k) => can(user, k));
   const side: NavItem[] = allowed.map((k) => ({ href: MODULES[k].href, label: MODULES[k].label, icon: ICONS[k] }));
   // bottom bar: up to 4 most-used tabs this person can open, New Order in the middle when allowed
-  const prefer: ModuleKey[] = ["dashboard", "orders", "newOrder", "customers", "kot", "dailyMenu", "preorders", "cash", "recipes", "stock", "wastage", "expenses", "menu", "reports"];
+  const prefer: ModuleKey[] = ["dashboard", "orders", "newOrder", "customers", "delivery", "kot", "dailyMenu", "preorders", "cash", "recipes", "stock", "wastage", "expenses", "menu", "reports"];
   let bottomKeys = prefer.filter((k) => allowed.includes(k)).slice(0, 4);
   if (bottomKeys.includes("newOrder")) bottomKeys = [...bottomKeys.filter((k) => k !== "newOrder").slice(0, 2), "newOrder", ...bottomKeys.filter((k) => k !== "newOrder").slice(2)];
   const bottom = [...bottomKeys.map((k) => ({ href: MODULES[k].href, label: SHORT[k] ?? MODULES[k].label.split(" ")[0], icon: ICONS[k] })), { href: "/more", label: "More", icon: "☰" }];
