@@ -17,5 +17,5 @@ export async function GET(req: Request) {
   }
   const s = tenantId ? await db.query.settings.findFirst({ where: eq(schema.settings.tenantId, tenantId) }).catch(() => null) : null;
   const target = s?.logoImageId ? `/img/${s.logoImageId}` : "/platform-logo.svg";
-  return new Response(null, { status: 307, headers: { Location: new URL(target, req.url).toString(), "Cache-Control": "no-store" } });
+  return new Response(null, { status: 307, headers: { Location: new URL(target, req.url).toString(), "Cache-Control": "private, max-age=300" } });
 }

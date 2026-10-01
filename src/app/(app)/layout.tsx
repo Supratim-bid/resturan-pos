@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { requireUser } from "@/lib/auth";
 import { MODULES, can, ROLE_LABEL, type ModuleKey } from "@/lib/permissions";
 import { themeCss } from "@/lib/theme";
-import { BottomNav, SideNav, type NavItem } from "@/components/nav";
+import { BottomNav, NavProgress, SideNav, type NavItem } from "@/components/nav";
 import { logout } from "../actions/auth";
 import { db, schema } from "@/db";
 
@@ -28,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="md:flex">
+      <NavProgress />
       <style dangerouslySetInnerHTML={{ __html: themeCss(setting?.primaryColor, setting?.accentColor) }} />
       <aside className="no-print sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-gold/30 bg-white p-3 md:flex">
         <Link href="/" className="mb-3 flex items-center gap-2 px-2 py-1">

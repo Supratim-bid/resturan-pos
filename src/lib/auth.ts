@@ -6,24 +6,30 @@ import { db, schema } from "@/db";
 import { COOKIE, ADMIN_COOKIE, verifySession, verifyAdmin } from "./session";
 import { can, effectivePerms, type PermKey, type Role } from "./permissions";
 import { FEATURE_TABS } from "./features";
-import { featureInfo, tenantWithPlan } from "./plans";
+import { cache } from "react";
+import { featureInfo } from "./plans";
 
 export type CurrentUser = { id: number; tenantId: number; tenantCode: string; name: string; username: string; role: Role; perms: PermKey[]; features: string[] };
 
 /** Logged-in, active user of an active restaurant - or null */
-export async function getUser(): Promise<CurrentUser | null> {
+// cache(): the layout and the page both ask for the user - one database trip per request, not two
+export const getUser = cache(async (): Promise<CurrentUser | null> => {
   const s = await verifySession((await cookies()).get(COOKIE)?.value);
   if (!s) return null;
-  const u = await db.query.users.findFirst({ where: eq(schema.users.id, s.uid) });
+  // user + restaurant + plan in ONE query (each trip to the database costs time)
+  const [row] = await db.select({ u: schema.users, t: schema.tenants, p: schema.plans }).from(schema.users)
+    .innerJoin(schema.tenants, eq(schema.tenants.id, schema.users.tenantId))
+    .leftJoin(schema.plans, eq(schema.plans.key, schema.tenants.plan))
+    .where(eq(schema.users.id, s.uid)).limit(1);
+  const u = row?.u;
   if (!u || !u.active || u.sessionVersion !== s.v || u.tenantId !== s.tid) return null;
-  const tp = await tenantWithPlan({ id: u.tenantId });
-  if (!tp || !tp.t.active) return null;
-  const t = tp.t;
-  const features = featureInfo(t, tp.plan).active;
+  const t = row.t;
+  if (!t.active) return null;
+  const features = featureInfo(t, row.p).active;
   // a tab that belongs to a feature is hidden until the super admin switches the feature on (and the owner has not switched it off)
   const perms = effectivePerms(u.role, u.permissions).filter((k) => !FEATURE_TABS[k] || features.includes(FEATURE_TABS[k]));
-  return { id: u.id, tenantId: u.tenantId, tenantCode: t.code, name: u.name, username: u.username, role: u.role, perms, features };
-}
+  return { id: u.id, tenantId: u.tenantId, tenantCode: t.code, name: u.name, username: u.username, role: u.role as Role, perms, features };
+});
 
 export async function requireUser(): Promise<CurrentUser> {
   const u = await getUser();
