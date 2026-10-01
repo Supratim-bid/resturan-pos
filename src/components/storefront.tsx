@@ -52,7 +52,11 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
   const shown = dishes.filter((d) => (q ? d.name.toLowerCase().includes(q.toLowerCase()) : cat === "All" || d.category === cat));
   const lines = dishes.filter((d) => cart[d.id]).map((d) => ({ ...d, qty: cart[d.id] }));
   const count = lines.reduce((s, l) => s + l.qty, 0);
-  const itemsTotal = r2(lines.reduce((s, l) => s + l.qty * l.price, 0));
+  // prices follow the chosen way to pay: "Pay online now" can carry the restaurant's online-payment price (same rounding as the server)
+  const priceFor = (price: number, way: "UPI" | "COD") => way === "UPI" && config.payMarkup > 0 ? Math.round(price * (1 + config.payMarkup / 100)) : price;
+  const px = (price: number) => priceFor(price, pay);
+  const totalFor = (way: "UPI" | "COD") => { const it = r2(lines.reduce((s, l) => s + l.qty * priceFor(l.price, way), 0)); const dl = kind === "DELIVERY" ? config.deliveryCharge : 0; return Math.round(it + dl + r2(((it + dl) * config.gstRate) / 100)); };
+  const itemsTotal = r2(lines.reduce((s, l) => s + l.qty * px(l.price), 0));
   const delivery = kind === "DELIVERY" ? config.deliveryCharge : 0;
   const gst = r2(((itemsTotal + delivery) * config.gstRate) / 100);
   const total = Math.round(itemsTotal + delivery + gst);
@@ -100,7 +104,7 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
                   <span className="w-6 text-center font-bold tabular-nums">{l.qty}</span>
                   <button className="h-8 w-8 rounded-lg bg-brand font-bold text-white" onClick={() => setQty(l.id, l.qty + 1)} aria-label={`One more ${l.name}`}>+</button>
                 </div>
-                <span className="w-16 text-right tabular-nums">{inr(l.qty * l.price)}</span>
+                <span className="w-16 text-right tabular-nums">{inr(l.qty * px(l.price))}</span>
               </div>
             ))}
           </section>
@@ -161,10 +165,10 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
             <h2 className="font-bold">Payment</h2>
             {config.payUpi && <label className="flex items-start gap-2 text-sm"><input type="radio" name="pay" className="mt-1 accent-[var(--color-brand)]" checked={pay === "UPI"} onChange={() => setPay("UPI")} />
               {config.payGateway
-                ? <span><b>Pay online now</b><span className="block text-xs text-muted">UPI, card, net banking or wallet. After placing the order you go straight to the secure payment page.</span></span>
+                ? <span><b>Pay online now{config.payMarkup > 0 && config.payCash && lines.length ? ` · ${inr(totalFor("UPI"))}` : ""}</b><span className="block text-xs text-muted">UPI, card, net banking or wallet. After placing the order you go straight to the secure payment page.</span></span>
                 : <span><b>Pay now by UPI</b><span className="block text-xs text-muted">After placing the order you&apos;ll see the UPI QR / button. You can attach a payment screenshot (optional). The restaurant confirms after checking the payment.</span></span>}</label>}
             {config.payCash && <label className="flex items-start gap-2 text-sm"><input type="radio" name="pay" className="mt-1 accent-[var(--color-brand)]" checked={pay === "COD"} onChange={() => setPay("COD")} />
-              <span><b>Cash {kind === "DELIVERY" ? "on delivery" : "at pickup"}</b><span className="block text-xs text-muted">Pay when you get your food</span></span></label>}
+              <span><b>Cash {kind === "DELIVERY" ? "on delivery" : "at pickup"}{config.payMarkup > 0 && config.payUpi && lines.length ? ` · ${inr(totalFor("COD"))}` : ""}</b><span className="block text-xs text-muted">Pay when you get your food</span></span></label>}
             {config.newMax > 0 && <p className="text-xs text-muted">First orders from a new number can be up to ₹{config.newMax}.</p>}
 
           </section>
@@ -213,7 +217,7 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
                     <span className={`inline-block h-3 w-3 shrink-0 rounded-sm border-2 ${d.vegType === "Veg" ? "border-emerald-600" : "border-red-600"}`} aria-label={d.vegType} />
                     <span className="font-semibold leading-tight">{d.name}</span>
                   </div>
-                  <div className="mt-0.5 text-sm text-muted">{inr(d.price)}</div>
+                  <div className="mt-0.5 text-sm text-muted">{inr(px(d.price))}</div>
                 </div>
                 {config.open && (n ? (
                   <div className="flex items-center gap-1">

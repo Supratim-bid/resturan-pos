@@ -43,6 +43,8 @@ export async function loadStorefront(codeRaw: string) {
       delivery: s.onlineDelivery, takeaway: s.onlineTakeaway, preorder: preorderOk,
       minOrder: Number(s.onlineMinOrder), deliveryCharge: Number(s.defaultDeliveryCharge), gstRate: Number(s.gstRate),
       payUpi, payCash, payGateway: !!gateway,
+      // % added to dish prices for "Pay online now" (only with a gateway)
+      payMarkup: gateway && payUpi ? Math.max(0, Math.min(25, Number(s.onlinePayMarkup) || 0)) : 0,
       otp: s.onlineOtp && smsReady(),
       newMax: Number(s.onlineNewMax),
       mealSlots: slots.length ? slots : ["Breakfast", "Lunch", "Evening Snacks", "Dinner"],
@@ -53,7 +55,7 @@ export async function loadStorefront(codeRaw: string) {
 export type StoreConfig = NonNullable<Awaited<ReturnType<typeof loadStorefront>>>["config"];
 
 /** Price a cart from the database (never trust prices from the browser) */
-export async function priceCart(tenantId: number, cart: { menuItemId: number; qty: number }[], opts: { delivery: boolean }) {
+export async function priceCart(tenantId: number, cart: { menuItemId: number; qty: number }[], opts: { delivery: boolean; markup?: number }) {
   const s = await db.query.settings.findFirst({ where: eq(schema.settings.tenantId, tenantId) });
   if (!s) throw new Error("Restaurant not set up.");
   const want = new Map<number, number>();
@@ -71,12 +73,15 @@ export async function priceCart(tenantId: number, cart: { menuItemId: number; qt
     const m = byId.get(id);
     if (!m) throw new Error("A dish in your cart is no longer on the menu. Please refresh the page.");
     if (!m.available) throw new Error(`${m.name} is sold out right now. Please remove it.`);
-    lines.push({ menuItemId: m.id, name: m.name, qty, rate: Number(m.price) });
+    lines.push({ menuItemId: m.id, name: m.name, qty, rate: onlinePrice(Number(m.price), opts.markup ?? 0) });
   }
   const deliveryCharge = opts.delivery ? Number(s.defaultDeliveryCharge) : 0;
   const t = calcTotals(lines.map((l) => ({ qty: l.qty, rate: l.rate, discount: 0 })), { orderDiscount: 0, deliveryCharge, packingCharge: 0, gstRate: Number(s.gstRate) });
   return { lines, itemsTotal: t.itemsTotal, deliveryCharge: round2(deliveryCharge), gst: t.gstAmount, total: t.total, s };
 }
+
+/** Dish price when the customer pays online and the restaurant adds a % for it (whole rupees, never lower) */
+export const onlinePrice = (price: number, markup: number) => markup > 0 ? Math.round(price * (1 + markup / 100)) : price;
 
 /** UPI link / QR for paying an online order before it is accepted */
 export function upiForOnline(s: { upiId: string; name: string; qrImageId: number | null }, amount: number, ref: string) {

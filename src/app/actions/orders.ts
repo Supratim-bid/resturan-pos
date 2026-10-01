@@ -34,6 +34,8 @@ export async function saveOrderAction(input: OrderInput): Promise<R<number>> {
     }
     if (input.isPreorder && !input.id && input.date < todayIST()) throw new Error("A pre-order must be for today or a later date.");
     input.kot = !!input.kot && u.features.includes("kot");
+    // prices always come from the menu (or the bill's own earlier prices) - never from the browser
+    input.items = (input.items ?? []).map((i) => ({ menuItemId: i.menuItemId, qty: i.qty, discount: i.discount }));
     const id = await saveOrder(u.tenantId, input, u.id);
     revalidatePath("/orders"); revalidatePath("/kot");
     return { ok: true, data: id };

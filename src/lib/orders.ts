@@ -10,7 +10,7 @@ export type OrderInput = {
   customerId?: number | null;
   orderType: string;
   tableNo?: string;
-  items: { menuItemId: number; qty: number; discount?: number }[];
+  items: { menuItemId: number; qty: number; discount?: number; rate?: number }[]; // rate: only set by server code (online orders keep the price the customer saw)
   orderDiscount?: number;
   deliveryCharge?: number;
   packingCharge?: number;
@@ -137,7 +137,8 @@ export async function saveOrder(tenantId: number, input: OrderInput, userId: num
     if (!m.available && !oldRates.has(m.id) && !input.isPreorder) throw new Error(`${m.name} is marked not available right now.`);
     const c = costs.get(m.id);
     const unitCost = c ? (c.hasRecipe ? c.foodPerPlate + (pack ? c.packagingPerPlate : 0) : c.costUsed) : 0;
-    const rate = oldRates.get(m.id) ?? Number(m.price), qty = Number(i.qty), discount = round2(Number(i.discount || 0));
+    const fixed = Number(i.rate);
+    const rate = oldRates.get(m.id) ?? (i.rate != null && Number.isFinite(fixed) && fixed >= 0 ? round2(fixed) : Number(m.price)), qty = Number(i.qty), discount = round2(Number(i.discount || 0));
     return { menuItemId: m.id, name: m.name, qty, rate, discount, lineTotal: round2(qty * rate - discount), unitCost: round2(unitCost) };
   });
   const gstRate = Number(setting.gstRate ?? 0);

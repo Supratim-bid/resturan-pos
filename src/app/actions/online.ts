@@ -80,7 +80,7 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
     if (cust?.onlineBlocked) throw new Error("Sorry, we can't take this order online. Please call the restaurant.");
     const isNew = !cust || !(await billCounts(tenant.id, [cust.id])).get(cust.id);
 
-    const priced = await priceCart(tenant.id, v.items ?? [], { delivery: kind === "DELIVERY" });
+    const priced = await priceCart(tenant.id, v.items ?? [], { delivery: kind === "DELIVERY", markup: payMethod === "UPI" ? config.payMarkup : 0 });
     if (priced.itemsTotal < Number(config.minOrder || 0)) throw new Error(`Minimum order is ₹${config.minOrder}. Please add a little more.`);
     if (isNew && config.newMax > 0 && priced.total > config.newMax) throw new Error(`For a first order the limit is ₹${config.newMax}. Please call the restaurant for bigger orders.`);
 
@@ -219,7 +219,8 @@ export async function acceptOnlineOrderAction(id: number, upiReceived: boolean):
       const orderId = await saveOrder(u.tenantId, {
         date: claimed.date < todayIST() ? todayIST() : claimed.date,
         customerId: claimed.customerId, orderType,
-        items: lines.map((l) => ({ menuItemId: l.menuItemId, qty: l.qty, discount: 0 })),
+        // keep the price the customer saw (includes the online-payment price when they paid online)
+        items: lines.map((l) => ({ menuItemId: l.menuItemId, qty: l.qty, discount: 0, rate: Number(l.rate) })),
         deliveryCharge: delivery ? Number(s?.defaultDeliveryCharge ?? 0) : 0, packingCharge: 0, orderDiscount: 0,
         notes, isPreorder: claimed.isPreorder, mealSlot: claimed.mealSlot, slotTime: claimed.slotTime,
         kot: u.features.includes("kot"),
@@ -267,13 +268,15 @@ export async function saveOnlineSettingsAction(v: Record<string, string>): Promi
     const u = await requireAction("settings");
     const min = Number(v.onlineMinOrder || 0);
     if (!Number.isFinite(min) || min < 0) throw new Error("Minimum order must be a number.");
+    const markup = Number(v.onlinePayMarkup || 0);
+    if (!Number.isFinite(markup) || markup < 0 || markup > 25) throw new Error("Online payment price increase must be between 0 and 25 %.");
     const newMax = Number(v.onlineNewMax || 0);
     if (!Number.isFinite(newMax) || newMax < 0) throw new Error("First-order limit must be a number.");
     if (v.onlinePayUpi !== "true" && v.onlinePayCash !== "true") throw new Error("Choose at least one way customers can pay.");
     await db.update(schema.settings).set({
       onlineOpen: v.onlineOpen === "true", onlineClosedMsg: clean(v.onlineClosedMsg, 200), onlineNote: clean(v.onlineNote, 300),
       onlineDelivery: v.onlineDelivery === "true", onlineTakeaway: v.onlineTakeaway === "true", onlinePreorder: v.onlinePreorder === "true",
-      onlineMinOrder: round2(min), onlineNewMax: round2(newMax),
+      onlineMinOrder: round2(min), onlineNewMax: round2(newMax), onlinePayMarkup: round2(markup),
       onlinePayUpi: v.onlinePayUpi === "true", onlinePayCash: v.onlinePayCash === "true", onlineOtp: v.onlineOtp === "true" && smsReady(),
       onlineDeliveryType: clean(v.onlineDeliveryType, 40) || "Delivery", onlineTakeawayType: clean(v.onlineTakeawayType, 40) || "Takeaway",
     }).where(eq(schema.settings.tenantId, u.tenantId));

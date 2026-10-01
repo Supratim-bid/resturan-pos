@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ADD COLUMN "online_pay_markup" numeric(12, 2) DEFAULT 0 NOT NULL;

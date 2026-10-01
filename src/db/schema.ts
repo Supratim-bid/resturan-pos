@@ -137,6 +137,7 @@ export const settings = pgTable("settings", {
   onlineDeliveryType: text("online_delivery_type").notNull().default("Delivery"), // order type used when accepting
   onlineTakeawayType: text("online_takeaway_type").notNull().default("Takeaway"),
   // stopping fake orders (online orders are always paid by UPI first)
+  onlinePayMarkup: money("online_pay_markup").notNull().default(0),          // % added to dish prices when the customer pays online (gateway) - shown as the price, not a fee
   onlineNewMax: money("online_new_max").notNull().default(0),                // max first order from a new number (0 = no limit)
   onlinePayUpi: boolean("online_pay_upi").notNull().default(true),   // customer can pay now by UPI
   onlinePayCash: boolean("online_pay_cash").notNull().default(false), // customer can pay cash on delivery / at pickup

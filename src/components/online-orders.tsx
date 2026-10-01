@@ -127,6 +127,8 @@ export function OnlineSettings({ initial, orderTypes, preorderFeature, hasUpi, s
         {!hasUpi && v.onlinePayUpi === "true" && <p className="text-xs text-red-700">Add your UPI ID or payment QR in Settings, otherwise customers won&apos;t see this option.</p>}
         {box("onlinePayCash", "Cash on delivery / at pickup")}
         <p className="text-xs text-muted">Tick at least one. Tip: UPI only is safest against fake orders.</p>
+        <div className="sm:w-1/2"><label className="label" htmlFor="omark">Online payment price increase % (0 = none)</label><input id="omark" className="input" inputMode="decimal" value={v.onlinePayMarkup} onChange={(e) => setV({ ...v, onlinePayMarkup: e.target.value })} /></div>
+        <p className="text-xs text-muted">Covers the payment gateway&apos;s fee. When a customer pays online, every dish shows this much higher (e.g. ₹180 at 5% shows as ₹189). It appears as the dish price on the menu and bill, not as an extra charge. Cash prices stay the same. Works only once a payment gateway is set up in Settings.</p>
       </div>
       <div className="space-y-2 rounded-xl bg-cream p-3">
         <div className="text-sm font-bold">Stopping fake orders</div>
