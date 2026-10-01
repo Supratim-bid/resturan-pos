@@ -19,6 +19,7 @@ export const MODULES = {
   stock:      { label: "Stock",              href: "/stock" },
   wastage:    { label: "Wastage",            href: "/wastage" },
   expenses:   { label: "Expenses",           href: "/expenses" },
+  reimbursements: { label: "Reimbursements",   href: "/reimbursements" },
   vendors:    { label: "Vendors & Dues",     href: "/vendors" },
   staff:      { label: "Staff & Attendance", href: "/staff" },
   cash:       { label: "Cash Closing",       href: "/cash" },

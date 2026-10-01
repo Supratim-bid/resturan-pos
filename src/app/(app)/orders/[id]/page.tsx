@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { activeGateway, GATEWAY_LABEL, type Gateway } from "@/lib/gateway";
+import { signBill } from "@/lib/session";
 import { notFound } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -9,7 +11,7 @@ import { payStatus } from "@/lib/orders";
 import { lookupValues } from "@/lib/options";
 import { fmtDate, fmtDateTime, fmtTime, inr, inr2, todayIST } from "@/lib/format";
 import { Badge, Card, PageHeader } from "@/components/ui";
-import { SharePdfButton } from "@/components/share-pdf";
+import { SharePdfButton, CopyLinkBtn } from "@/components/share-pdf";
 import { DeletePaymentBtn, PaymentForm, CancelPanel, FulfilButtons, PayLinkPanel, CollectQr } from "@/components/order-actions";
 import { upiForOnline } from "@/lib/online";
 
@@ -30,15 +32,17 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const names = new Map((staffIds.length ? await db.query.users.findMany({ where: and(eq(schema.users.tenantId, u.tenantId), inArray(schema.users.id, staffIds)) }) : []).map((x) => [x.id, x.name]));
   const setting = await db.query.settings.findFirst({ where: eq(schema.settings.tenantId, u.tenantId) });
   const code = o.billNo;
-  const lines = o.items.map((i) => `${i.name} x${Number(i.qty)} = ₹${Number(i.lineTotal)}`).join("\n");
-  const msg = `*${setting?.name ?? "Restaurant"}* - Bill ${code}\n${fmtDate(o.date)}\n\n${lines}\n\n*Total: ₹${Number(o.total)}*` +
-    (o.isPreorder ? `\n\n🗓️ Pre-order for ${fmtDate(o.date)}${o.mealSlot ? `, ${o.mealSlot}` : ""}${o.slotTime ? ` at ${fmtTime(o.slotTime)}` : ""}` : "") +
-    (st.due > 0 ? `\nDue: ₹${st.due}` : "\nPaid - thank you!") +
-    (st.due > 0 && o.payLinkShort && o.payLinkStatus === "created" ? `\nPay online: ${o.payLinkShort}` : "") +
-    (setting?.upiId && st.due > 0 ? `\nPay by UPI: ${setting.upiId}` : "") +
-    (!setting?.upiId && setting?.payLinkUrl && st.due > 0 ? `\nPay here: ${setting.payLinkUrl}` : "");
   const phone = (o.customer?.phone ?? "").replace(/\D/g, "");
-  const wa = `https://wa.me/${phone.length === 10 ? "91" + phone : phone}?text=${encodeURIComponent(msg)}`;
+  // one-click send: a public bill link the customer can open (view + download PDF, pay if due)
+  const h = await headers();
+  const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? ""}`;
+  const billToken = await signBill(u.tenantId, o.id);
+  const shareUrl = `${origin}/b/${billToken}`;
+  const msgLink = `Namaste 🙏 Here is your bill from *${setting?.name ?? "us"}*\nBill ${code} · ${fmtDate(o.date)}\n*Total: ₹${Number(o.total)}*` +
+    (st.due > 0 ? `  (Due ₹${st.due})` : "  (Paid ✓)") +
+    `\n\nView & download: ${shareUrl}` +
+    (st.due > 0 && setting?.upiId ? `\nPay by UPI: ${setting.upiId}` : "") + `\n\nThank you!`;
+  const waSend = `https://wa.me/${phone.length === 10 ? "91" + phone : phone}?text=${encodeURIComponent(msgLink)}`;
   const margin = Number(o.taxable) - Number(o.foodCost);
 
   return (
@@ -48,13 +52,20 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         title={code}
         subtitle={<>{fmtDate(o.date)} · {o.orderType}{o.tableNo ? ` · Table ${o.tableNo}` : ""} · by {o.createdBy?.name ?? "—"} · {fmtDateTime(o.createdAt)}</>}
         actions={<>
-          <Link href={`/bill/${o.id}`} className="btn-primary">🧾 Bill / Print</Link>
-          {o.kotNo && u.features.includes("kotPrint") && <Link href={`/kot/${o.id}`} className="btn-gold">🍳 Print KOT #{o.kotNo}</Link>}
-          <SharePdfButton orderId={o.id} billNo={o.billNo} phone={o.customer?.phone ?? ""} message={msg} label="📄 WhatsApp bill (PDF)" />
-          <a href={wa} target="_blank" className="btn-ghost">WhatsApp text</a>
+          {phone.length === 10
+            ? <a href={waSend} target="_blank" rel="noreferrer" className="btn-primary">📲 Send bill on WhatsApp</a>
+            : <Link href={`/customers${o.customer ? `/${o.customer.id}` : ""}`} className="btn-ghost" title="Add the customer's mobile number to send">📲 Send bill (add phone)</Link>}
+          <Link href={`/bill/${o.id}`} className="btn-gold">🧾 Print</Link>
+          {o.kotNo && u.features.includes("kotPrint") && <Link href={`/kot/${o.id}`} className="btn-ghost">🍳 KOT #{o.kotNo}</Link>}
           {editable && o.status === "ACTIVE" && o.cancelStatus !== "REQUESTED" && <Link href={`/orders/${o.id}/edit`} className="btn-ghost">Edit</Link>}
         </>}
       />
+      <div className="no-print mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">Bill link:</span>
+        <a href={shareUrl} target="_blank" rel="noreferrer" className="truncate rounded-lg bg-cream px-2 py-1 font-mono text-xs text-brand ring-1 ring-line">/b/…{billToken.slice(-8)}</a>
+        <CopyLinkBtn url={shareUrl} />
+        <SharePdfButton orderId={o.id} billNo={o.billNo} phone={o.customer?.phone ?? ""} message={msgLink} className="btn-ghost btn-sm" label="📄 Send as PDF" />
+      </div>
       <div className="mb-3 flex flex-wrap gap-2">
         <Badge tone={st.tone}>{st.label}</Badge>
         {o.status === "CANCELLED" && <Badge tone="gray">Cancelled</Badge>}

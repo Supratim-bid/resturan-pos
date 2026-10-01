@@ -34,6 +34,18 @@ export async function verifyAdmin(token?: string): Promise<AdminPayload | null> 
   } catch { return null; }
 }
 
+// Shareable bill link: a signed token so a customer can open ONE bill (no login) at /b/<token>
+export async function signBill(tid: number, oid: number) {
+  return new SignJWT({ tid, oid, typ: "bill" }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("365d").sign(key());
+}
+export async function verifyBill(token?: string): Promise<{ tid: number; oid: number } | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, key());
+    return payload.typ === "bill" && typeof payload.tid === "number" && typeof payload.oid === "number" ? { tid: payload.tid, oid: payload.oid } : null;
+  } catch { return null; }
+}
+
 // customer's verified mobile (after SMS OTP) for online orders - per restaurant
 export const PHONE_COOKIE = "ao_phone";
 export async function signPhone(tid: number, phone: string) {

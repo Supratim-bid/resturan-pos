@@ -42,8 +42,12 @@ export function FieldInput({ f, value, onChange, options }: { f: FieldDef; value
     );
   if (f.type === "textarea") return <textarea className="input min-h-24" value={v} onChange={(e) => onChange(e.target.value)} />;
   if (f.type === "select") {
+    // keep a previously-saved value that is no longer in the list (e.g. a name of someone since removed)
+    const vStr = v == null ? "" : String(v);
+    const opts0 = options ?? [];
+    const withCurrent = vStr && !opts0.some((o) => String(o.value) === vStr) ? [{ value: vStr, label: vStr }, ...opts0] : opts0;
     const groups = new Map<string, Option[]>();
-    for (const o of options ?? []) {
+    for (const o of withCurrent) {
       const g = o.group ?? "";
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(o);

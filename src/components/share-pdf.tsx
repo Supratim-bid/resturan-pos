@@ -1,6 +1,17 @@
 "use client";
 import { useState } from "react";
 
+/** Copy a link to the clipboard (for sharing the bill link anywhere). */
+export function CopyLinkBtn({ url, className = "btn-ghost btn-sm" }: { url: string; className?: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button type="button" className={className} onClick={async () => {
+      try { await navigator.clipboard.writeText(url); } catch { /* ignore */ }
+      setDone(true); setTimeout(() => setDone(false), 1500);
+    }}>{done ? "✓ Copied" : "📋 Copy link"}</button>
+  );
+}
+
 /**
  * Sends the A4 bill PDF on WhatsApp.
  * Phone (Android/iPhone): opens the share menu with the PDF attached - pick WhatsApp, then the customer.

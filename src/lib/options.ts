@@ -8,6 +8,24 @@ export async function lookupValues(tenantId: number, kind: string) {
   return rows.map((r) => r.value);
 }
 
+/** Names of the people who could pay from their own pocket: logins (owners/staff) + the staff list, deduped. Value = the name. */
+export async function peopleNames(tenantId: number): Promise<Option[]> {
+  const [logins, staff] = await Promise.all([
+    db.query.users.findMany({ where: eq(schema.users.tenantId, tenantId), columns: { name: true, role: true, active: true } }),
+    db.query.staff.findMany({ where: eq(schema.staff.tenantId, tenantId), columns: { name: true, active: true } }),
+  ]);
+  const seen = new Set<string>();
+  const out: Option[] = [];
+  const add = (name: string, group: string) => {
+    const n = name.trim();
+    if (!n || seen.has(n.toLowerCase())) return;
+    seen.add(n.toLowerCase()); out.push({ value: n, label: n, group });
+  };
+  for (const u of logins) if (u.active) add(u.name, u.role === "OWNER" ? "Owners" : "Logins");
+  for (const s of staff) if (s.active) add(s.name, "Staff");
+  return out;
+}
+
 /** Resolve dropdown options for a set of fields */
 export async function resolveOptions(tenantId: number, fields: FieldDef[]): Promise<Record<string, Option[]>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,6 +35,7 @@ export async function resolveOptions(tenantId: number, fields: FieldDef[]): Prom
     const s = f.source;
     if (!s) continue;
     if ("values" in s) out[f.name] = s.values.map((v) => ({ value: v, label: v }));
+    else if ("people" in s) out[f.name] = await peopleNames(tenantId);
     else if ("lookup" in s) out[f.name] = (await lookupValues(tenantId, s.lookup)).map((v) => ({ value: v, label: v }));
     else {
       switch (s.entity) {

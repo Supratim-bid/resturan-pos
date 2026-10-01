@@ -31,25 +31,26 @@ export async function GET(req: Request, { params }: { params: Promise<{ kind: st
     return new Response(csv(rows), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="menu${url.searchParams.get("template") ? "-template" : ""}.csv"` } });
   }
   if (kind === "orders" || kind === "order-items") {
-    const os = await db.query.orders.findMany({ where: and(eq(O.tenantId, u.tenantId), gte(O.date, from), lte(O.date, to)), with: { customer: true, items: true, payments: true }, orderBy: [asc(O.date), asc(O.id)] });
+    const os = await db.query.orders.findMany({ where: and(eq(O.tenantId, u.tenantId), gte(O.date, from), lte(O.date, to)), with: { customer: true, items: true, payments: { with: { createdBy: true } }, createdBy: true, deliveredBy: true }, orderBy: [asc(O.date), asc(O.id)] });
+    const paidBy = (o: typeof os[number]) => { const p = [...o.payments].reverse().find((x) => Number(x.amount) > 0 && x.createdBy); return p?.createdBy?.name ?? ""; };
     if (kind === "orders") {
-      rows = [["Order", "Date", "Status", "Type", "Table", "Customer", "Phone", "Items total", "Discount", "Delivery", "Packing", "Taxable", "GST", "Total", "Paid", "Due", "Food cost", "Notes", "Cancellation", "Cancel reason"]];
+      rows = [["Order", "Date", "Status", "Type", "Table", "Customer", "Phone", "Taken by", "Delivered by", "Payment taken by", "Items total", "Discount", "Delivery", "Packing", "Taxable", "GST", "Total", "Paid", "Due", "Food cost", "Notes", "Cancellation", "Cancel reason"]];
       for (const o of os) {
         const paid = o.payments.reduce((s, p) => s + Number(p.amount), 0);
-        rows.push([o.billNo, o.date, o.status, o.orderType, o.tableNo, o.customer?.name ?? "", o.customer?.phone ?? "", o.itemsTotal,
+        rows.push([o.billNo, o.date, o.status, o.orderType, o.tableNo, o.customer?.name ?? "", o.customer?.phone ?? "", o.createdBy?.name ?? "Online/system", o.fulfilStatus === "DELIVERED" ? (o.deliveredBy?.name ?? "✓") : "", paidBy(o), o.itemsTotal,
           Number(o.itemDiscount) + Number(o.orderDiscount), o.deliveryCharge, o.packingCharge, o.taxable, o.gstAmount, o.total, paid, Number(o.total) - paid, o.foodCost, o.notes, o.cancelStatus, o.cancelReason]);
       }
     } else {
-      rows = [["Order", "Date", "Status", "Type", "Customer", "Dish", "Qty", "Rate", "Discount", "Line total", "Cost / plate"]];
-      for (const o of os) for (const i of o.items) rows.push([o.billNo, o.date, o.status, o.orderType, o.customer?.name ?? "", i.name, i.qty, i.rate, i.discount, i.lineTotal, i.unitCost]);
+      rows = [["Order", "Date", "Status", "Type", "Customer", "Taken by", "Delivered by", "Dish", "Qty", "Rate", "Discount", "Line total", "Cost / plate"]];
+      for (const o of os) for (const i of o.items) rows.push([o.billNo, o.date, o.status, o.orderType, o.customer?.name ?? "", o.createdBy?.name ?? "Online/system", o.fulfilStatus === "DELIVERED" ? (o.deliveredBy?.name ?? "✓") : "", i.name, i.qty, i.rate, i.discount, i.lineTotal, i.unitCost]);
     }
   } else if (kind === "payments") {
-    const ps = await db.query.payments.findMany({ where: and(eq(schema.payments.tenantId, u.tenantId), gte(schema.payments.date, from), lte(schema.payments.date, to)), with: { order: true, customer: true }, orderBy: [asc(schema.payments.date)] });
-    rows = [["Date", "Customer", "Order", "Mode", "Amount", "Notes"], ...ps.map((p) => [p.date, p.customer?.name ?? "", p.order ? p.order.billNo : "advance", p.mode, p.amount, p.notes])];
+    const ps = await db.query.payments.findMany({ where: and(eq(schema.payments.tenantId, u.tenantId), gte(schema.payments.date, from), lte(schema.payments.date, to)), with: { order: true, customer: true, createdBy: true }, orderBy: [asc(schema.payments.date)] });
+    rows = [["Date", "Customer", "Order", "Mode", "Amount", "Recorded by", "Notes"], ...ps.map((p) => [p.date, p.customer?.name ?? "", p.order ? p.order.billNo : "advance", p.mode, p.amount, p.createdBy?.name ?? "", p.notes])];
   } else if (kind === "expenses") {
-    const es = await db.query.expenses.findMany({ where: and(eq(schema.expenses.tenantId, u.tenantId), gte(schema.expenses.date, from), lte(schema.expenses.date, to)), with: { vendor: true, staff: true, ingredient: true }, orderBy: [asc(schema.expenses.date)] });
-    rows = [["Date", "Category", "Description", "Amount", "Paid by", "Vendor", "Staff", "Stock item", "Qty", "Notes"],
-      ...es.map((e) => [e.date, e.category, e.description, e.amount, e.paymentMode, e.vendor?.name ?? "", e.staff?.name ?? "", e.ingredient?.name ?? "", e.qty, e.notes])];
+    const es = await db.query.expenses.findMany({ where: and(eq(schema.expenses.tenantId, u.tenantId), gte(schema.expenses.date, from), lte(schema.expenses.date, to)), with: { vendor: true, staff: true, ingredient: true, createdBy: true }, orderBy: [asc(schema.expenses.date)] });
+    rows = [["Date", "Category", "Description", "Amount", "How paid", "Whose money", "Paid by name", "Reimbursed?", "Vendor", "Staff", "Entered by", "Stock item", "Qty", "Notes"],
+      ...es.map((e) => [e.date, e.category, e.description, e.amount, e.paymentMode, e.paidFrom, e.paidByName, e.reimbursedAt ? "Repaid" : (e.paidFrom === "Company" ? "" : "Owed"), e.vendor?.name ?? "", e.staff?.name ?? "", e.createdBy?.name ?? "", e.ingredient?.name ?? "", e.qty, e.notes])];
   } else if (kind === "customers") {
     const [cs, bal] = await Promise.all([db.query.customers.findMany({ where: eq(schema.customers.tenantId, u.tenantId), orderBy: (t, { asc }) => asc(t.name) }), customerBalances(u.tenantId)]);
     rows = [["Name", "Phone", "Flat", "Area", "Email", "Birthday", "Total billed", "Paid", "Balance due", "Notes"],

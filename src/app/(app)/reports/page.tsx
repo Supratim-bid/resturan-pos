@@ -177,13 +177,15 @@ export default async function Reports({ searchParams }: { searchParams: SP }) {
             <p className="mt-3 text-xs text-muted">After refunds for cancelled bills: {modes.filter((m) => m.refunded > 0).map((m) => `${m.mode} ₹${m.received.toLocaleString("en-IN")} in − ₹${m.refunded.toLocaleString("en-IN")} refunded`).join(" · ")}</p>
           )}
         </Card>
-        <Card title="Download (CSV for Excel)">
+        <Card title="Download">
+          <a href={`/api/export/workbook?${q}`} className="btn-primary mb-3 block text-center">📊 Download Excel (all sheets)</a>
+          <p className="mb-2 text-xs text-muted">One Excel file with Orders, Items, Payments, Expenses, Reimbursements and Customers — each row shows who took the order, who delivered and who took the payment.</p>
           <div className="grid grid-cols-2 gap-2">
-            {[["orders", "Orders"], ["order-items", "Dish-wise lines"], ["payments", "Payments"], ["expenses", "Expenses"], ["customers", "Customers & dues"], ["stock", "Stock movements"]].map(([k, l]) => (
+            {[["orders", "Orders (CSV)"], ["order-items", "Dish-wise lines (CSV)"], ["payments", "Payments (CSV)"], ["expenses", "Expenses (CSV)"], ["customers", "Customers & dues (CSV)"], ["stock", "Stock movements (CSV)"]].map(([k, l]) => (
               <a key={k} href={`/api/export/${k}?${q}`} className="btn-ghost btn-sm">⬇ {l}</a>
             ))}
           </div>
-          <p className="mt-2 text-xs text-muted">Files cover {label} (customers: all). Open them in Excel or Google Sheets.</p>
+          <p className="mt-2 text-xs text-muted">Files cover {label} (customers: all).</p>
         </Card>
       </div>
       <Card title="Dish-wise sales & profit" className="mt-4">

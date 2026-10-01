@@ -25,7 +25,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
   // money people paid from their own pocket (not company) and not on credit -> to be reimbursed
   const reimb = new Map<string, number>();
   for (const r of rows) {
-    if ((r.paidFrom === "Owner" || r.paidFrom === "Staff") && r.paymentMode !== "Credit") {
+    if ((r.paidFrom === "Owner" || r.paidFrom === "Staff") && r.paymentMode !== "Credit" && !r.reimbursedAt) {
       const who = `${r.paidByName || r.paidFrom} (${r.paidFrom})`;
       reimb.set(who, (reimb.get(who) ?? 0) + Number(r.amount));
     }
@@ -51,7 +51,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
               <li key={who} className="flex justify-between border-b border-line/60 py-1.5"><span>{who}</span><b className="tabular-nums text-amber-700">{inr(v)}</b></li>
             ))}
           </ul>
-          <p className="mt-2 text-sm">Total to repay: <b className="text-amber-700">{inr(reimbTotal)}</b> <span className="text-xs text-muted">· record each repayment as a normal payout/expense when you settle it</span></p>
+          <p className="mt-2 text-sm">Total to repay: <b className="text-amber-700">{inr(reimbTotal)}</b> · <a href="/reimbursements" className="font-semibold text-brand underline">Open Reimbursements →</a></p>
         </Card>
       )}
       <CrudManager entity="expenses" title="expense" fields={f} options={opts} rows={data} path="/expenses" addLabel="Expense"

@@ -10,7 +10,7 @@ import { db, schema } from "@/db";
 
 const ICONS: Record<ModuleKey, string> = {
   dashboard: "🏠", newOrder: "＋", orders: "🧾", preorders: "🗓️", onlineOrders: "📲", kot: "🍳", delivery: "🏍️", customers: "👥", dailyMenu: "📅", menu: "🍛", recipes: "📖",
-  ingredients: "🧅", packaging: "📦", stock: "🏷️", wastage: "🗑️", expenses: "💸", vendors: "🚚", staff: "👨‍🍳",
+  ingredients: "🧅", packaging: "📦", stock: "🏷️", wastage: "🗑️", expenses: "💸", reimbursements: "🔁", vendors: "🚚", staff: "👨‍🍳",
   cash: "💰", money: "🏦", settlements: "🛵", reports: "📊", reminders: "⏰", settings: "⚙️",
 };
 const SHORT: Partial<Record<ModuleKey, string>> = { kot: "Kitchen", delivery: "Delivery", onlineOrders: "Online", preorders: "Pre-orders", newOrder: "New", dashboard: "Home", dailyMenu: "Today", orders: "Orders", customers: "Customers", cash: "Cash" };

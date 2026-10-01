@@ -556,6 +556,9 @@ export const expenses = pgTable("expenses", {
   paidFrom: text("paid_from").notNull().default("Company"), // Company | Owner | Staff - whose money was used
   paidByName: text("paid_by_name").notNull().default(""),   // the owner's / staff's name when not from company funds (for reimbursement)
   createdById: integer("created_by_id").references(() => users.id), // which login entered this expense
+  reimbursedAt: timestamp("reimbursed_at"),                 // set when the owner/staff was repaid (null = still owed)
+  reimbursedById: integer("reimbursed_by_id").references(() => users.id),
+  reimbursedMode: text("reimbursed_mode").notNull().default(""),
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("expenses_tenant_date").on(t.tenantId, t.date)]);
@@ -670,6 +673,7 @@ export const expensesRel = relations(expenses, ({ one }) => ({
   ingredient: one(ingredients, { fields: [expenses.ingredientId], references: [ingredients.id] }),
   vendor: one(vendors, { fields: [expenses.vendorId], references: [vendors.id] }),
   staff: one(staff, { fields: [expenses.staffId], references: [staff.id] }),
+  createdBy: one(users, { fields: [expenses.createdById], references: [users.id] }),
 }));
 export const wastageRel = relations(wastage, ({ one }) => ({
   menuItem: one(menuItems, { fields: [wastage.menuItemId], references: [menuItems.id] }),
