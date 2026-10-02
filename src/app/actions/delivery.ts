@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
 import { checkPaymentLink, createPaymentLink } from "@/lib/gateway";
 import { round2, todayIST } from "@/lib/format";
+import { estimateEtaMin } from "@/lib/eta";
 
 // Actions for the Delivery tab - the delivery person only needs the "Delivery" tab, not Orders & Bills.
 type R<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -52,6 +53,41 @@ export async function deliveryCollectAction(orderId: number, _amount: number, mo
     return { ok: true };
   } catch (e) { return fail(e); }
 }
+/** Rider taps "Out for delivery" (or undoes it). */
+export async function setOutForDeliveryAction(orderId: number, out: boolean): Promise<R> {
+  try {
+    const u = await requireAction("delivery");
+    await deliveryOrder(u.tenantId, orderId);
+    await db.update(schema.orders).set({ fulfilStatus: out ? "OUT" : "" }).where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)));
+    revalidatePath("/delivery"); revalidatePath(`/orders/${orderId}`);
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Assign (or clear) the delivery person for an order. */
+export async function assignRiderAction(orderId: number, riderId: number | null): Promise<R> {
+  try {
+    const u = await requireAction("delivery");
+    await deliveryOrder(u.tenantId, orderId);
+    await db.update(schema.orders).set({ riderId: riderId || null }).where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)));
+    revalidatePath("/delivery");
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Rider's phone shares its live location while out for delivery; we also recompute the ETA. */
+export async function shareLocationAction(orderId: number, lat: number, lng: number): Promise<R> {
+  try {
+    const u = await requireAction("delivery");
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new Error("Bad location.");
+    const o = await db.query.orders.findFirst({ where: and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)), columns: { destLat: true, destLng: true } });
+    const eta = o ? estimateEtaMin(lat, lng, o.destLat ? Number(o.destLat) : null, o.destLng ? Number(o.destLng) : null) : null;
+    await db.update(schema.orders).set({ trackLat: String(lat), trackLng: String(lng), trackAt: new Date(), ...(eta != null ? { etaMin: eta, etaAt: new Date() } : {}) })
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, u.tenantId)));
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
 export async function deliveredAction(orderId: number, done: boolean): Promise<R> {
   try {
     const u = await requireAction("delivery");

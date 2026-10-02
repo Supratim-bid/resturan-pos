@@ -18,6 +18,8 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
   const [q, setQ] = useState("");
   const [step, setStep] = useState<"menu" | "checkout">("menu");
   const [f, setF] = useState({ name: "", phone: "", flat: "", area: "", notes: "", website: "" });
+  const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [pinNote, setPinNote] = useState("");
   const [kind, setKind] = useState<"DELIVERY" | "TAKEAWAY">(config.delivery ? "DELIVERY" : "TAKEAWAY");
   const [pre, setPre] = useState(false);
   const [date, setDate] = useState(addDay(today, 1));
@@ -70,6 +72,7 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
     const input: PlaceOrderInput = {
       name: f.name, phone: f.phone, kind, isPreorder: pre, date, mealSlot: slot, slotTime: time,
       flat: f.flat, area: f.area, notes: f.notes, payMethod: pay, website: f.website,
+      lat: pin?.lat, lng: pin?.lng,
       items: lines.map((l) => ({ menuItemId: l.id, qty: l.qty })),
     };
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ name: f.name, phone: f.phone, flat: f.flat, area: f.area })); } catch { /* ignore */ }
@@ -158,6 +161,17 @@ export function Storefront({ code, config, dishes, today, verifiedPhone = "" }: 
             {kind === "DELIVERY" && <>
               <div><label className="label" htmlFor="cflat">Flat / house no.</label><input id="cflat" className="input" autoComplete="address-line1" value={f.flat} onChange={(e) => setF({ ...f, flat: e.target.value })} /></div>
               <div><label className="label" htmlFor="carea">Society / street / area</label><input id="carea" className="input" autoComplete="address-line2" value={f.area} onChange={(e) => setF({ ...f, area: e.target.value })} /></div>
+              <div className="sm:col-span-2">
+                <button type="button" className={pin ? "btn-ghost btn-sm" : "btn-gold btn-sm"} onClick={() => {
+                  if (!navigator.geolocation) { setPinNote("Location isn't available on this phone."); return; }
+                  setPinNote("Getting your location…");
+                  navigator.geolocation.getCurrentPosition(
+                    (p) => { setPin({ lat: p.coords.latitude, lng: p.coords.longitude }); setPinNote("✓ Location shared - the rider can track to you for a live ETA."); },
+                    () => setPinNote("Couldn't get location. You can still order; the address is enough."),
+                    { enableHighAccuracy: true, timeout: 15000 });
+                }}>📍 {pin ? "Location shared ✓ (tap to redo)" : "Share my location for live ETA"}</button>
+                {pinNote && <p className="mt-1 text-xs text-muted">{pinNote}</p>}
+              </div>
             </>}
             <div><label className="label" htmlFor="cnotes">Note for the kitchen (optional)</label><input id="cnotes" className="input" placeholder="e.g. less spicy" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
             <input tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 opacity-0" value={f.website} onChange={(e) => setF({ ...f, website: e.target.value })} />

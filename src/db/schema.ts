@@ -422,6 +422,15 @@ export const orders = pgTable("orders", {
   createdById: integer("created_by_id").references(() => users.id),
   deliveredById: integer("delivered_by_id").references(() => users.id), // who marked this delivered
   deliveredAt: timestamp("delivered_at"),
+  // live delivery tracking: the rider's last shared GPS (fulfilStatus "OUT" = out for delivery)
+  riderId: integer("rider_id").references(() => users.id), // the delivery person assigned to this order
+  trackLat: text("track_lat").notNull().default(""),
+  trackLng: text("track_lng").notNull().default(""),
+  trackAt: timestamp("track_at"),
+  destLat: text("dest_lat").notNull().default(""),   // customer's delivery location (shared pin)
+  destLng: text("dest_lng").notNull().default(""),
+  etaMin: integer("eta_min"),                         // last computed minutes-to-arrive (incl. buffer)
+  etaAt: timestamp("eta_at"),
 }, (t) => [
   uniqueIndex("orders_tenant_bill").on(t.tenantId, t.billNo),
   uniqueIndex("orders_tenant_fy_no").on(t.tenantId, t.fy, t.orderNo),
@@ -484,6 +493,8 @@ export const onlineOrders = pgTable("online_orders", {
   payLinkProvider: text("pay_link_provider").notNull().default(""),
   discount: money("discount").notNull().default(0),                      // pickup discount given on this order (goes on the bill as a discount)
   phoneCheck: text("phone_check").notNull().default(""), // "ok:instamojo" / "invalid:instamojo" - did the payment gateway accept the mobile?
+  destLat: text("dest_lat").notNull().default(""),   // delivery location pin shared at checkout
+  destLng: text("dest_lng").notNull().default(""),
   paidOnline: money("paid_online").notNull().default(0),          // amount the gateway confirmed
   device: text("device").notNull().default(""),               // hash of the customer's browser id (for "My orders")
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -681,6 +692,7 @@ export const ordersRel = relations(orders, ({ one, many }) => ({
   customer: one(customers, { fields: [orders.customerId], references: [customers.id] }),
   createdBy: one(users, { fields: [orders.createdById], references: [users.id] }),
   deliveredBy: one(users, { fields: [orders.deliveredById], references: [users.id] }),
+  rider: one(users, { fields: [orders.riderId], references: [users.id] }),
   packaging: many(orderPackaging),
   items: many(orderItems),
   payments: many(payments),

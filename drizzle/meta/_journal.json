@@ -162,6 +162,20 @@
       "when": 1790882302358,
       "tag": "0022_files_support",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790914615225,
+      "tag": "0023_delivery_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790947465266,
+      "tag": "0024_rider_eta",
+      "breakpoints": true
     }
   ]
 }

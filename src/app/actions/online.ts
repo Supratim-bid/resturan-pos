@@ -26,6 +26,7 @@ export type PlaceOrderInput = {
   name: string; phone: string; kind: "DELIVERY" | "TAKEAWAY";
   isPreorder: boolean; date?: string; mealSlot?: string; slotTime?: string;
   flat?: string; area?: string; notes?: string; payMethod?: "UPI" | "COD";
+  lat?: number; lng?: number; // optional delivery-location pin shared by the customer
   items: { menuItemId: number; qty: number }[];
   website?: string; // honeypot: real people never fill this
 };
@@ -104,6 +105,8 @@ export async function placeOnlineOrderAction(code: string, v: PlaceOrderInput): 
       kind, isPreorder: !!v.isPreorder, date, mealSlot, slotTime,
       items: JSON.stringify(priced.lines), estTotal: priced.total, discount: priced.discount, payMethod, notes: clean(v.notes, 300), ip,
       device: deviceHash(tenant.id, dev),
+      destLat: kind === "DELIVERY" && Number.isFinite(Number(v.lat)) && Math.abs(Number(v.lat)) <= 90 ? String(Number(v.lat)) : "",
+      destLng: kind === "DELIVERY" && Number.isFinite(Number(v.lng)) && Math.abs(Number(v.lng)) <= 180 ? String(Number(v.lng)) : "",
     });
     await recordFailure([{ key: keys[0], limit: 10 }, { key: keys[1], limit: 5 }]); // counts orders, not failures
     revalidatePath("/online-orders"); revalidatePath("/");
@@ -239,6 +242,10 @@ export async function acceptOnlineOrderAction(id: number, upiReceived: boolean):
           tenantId: u.tenantId, orderId, customerId: o.customerId, amount: round2(Number(o.total)), mode: "UPI", date: todayIST(),
           notes: "Online order - paid by UPI (checked by staff)",
         });
+      }
+      // carry the customer's delivery-location pin (if shared at checkout) onto the bill, for live ETA
+      if (delivery && claimed.destLat && claimed.destLng) {
+        await db.update(schema.orders).set({ destLat: claimed.destLat, destLng: claimed.destLng }).where(eq(schema.orders.id, orderId));
       }
       await db.update(schema.onlineOrders).set({ status: "ACCEPTED", orderId }).where(eq(schema.onlineOrders.id, id));
       revalidatePath("/online-orders"); revalidatePath("/orders"); revalidatePath("/kot"); revalidatePath("/");

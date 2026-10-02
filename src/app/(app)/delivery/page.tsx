@@ -6,24 +6,30 @@ import { activeGateway, GATEWAY_LABEL, type Gateway } from "@/lib/gateway";
 import { upiForOnline } from "@/lib/online";
 import { addDays, fmtDate, fmtTime, inr, todayIST , fmtDateTime} from "@/lib/format";
 import { Badge, Empty, PageHeader } from "@/components/ui";
-import { DeliveryActions } from "@/components/delivery";
+import { DeliveryActions, AssignRider } from "@/components/delivery";
+import { listRiders } from "@/lib/riders";
+import { etaRange } from "@/lib/eta";
 
 export const dynamic = "force-dynamic";
 
 // Our own delivery people: today's delivery orders, address, what to collect, and a QR to collect it.
-export default async function Delivery({ searchParams }: { searchParams: Promise<{ date?: string; show?: string }> }) {
+export default async function Delivery({ searchParams }: { searchParams: Promise<{ date?: string; show?: string; who?: string }> }) {
   const u = await requirePage("delivery");
   const sp = await searchParams;
   const today = todayIST();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.date ?? "") ? sp.date! : today;
   const show = sp.show === "done" ? "done" : sp.show === "log" ? "log" : "todo";
-  const [s, orders] = await Promise.all([
+  const mine = sp.who === "mine";
+  const [s, allOrders, riders] = await Promise.all([
     db.query.settings.findFirst({ where: eq(schema.settings.tenantId, u.tenantId) }),
     db.query.orders.findMany({
       where: and(eq(schema.orders.tenantId, u.tenantId), eq(schema.orders.status, "ACTIVE"), eq(schema.orders.date, date), ilike(schema.orders.orderType, "%deliver%")),
-      with: { items: true, payments: { with: { createdBy: true } }, customer: true, deliveredBy: true }, orderBy: [asc(schema.orders.slotTime), asc(schema.orders.createdAt)],
+      with: { items: true, payments: { with: { createdBy: true } }, customer: true, deliveredBy: true, rider: true }, orderBy: [asc(schema.orders.slotTime), asc(schema.orders.createdAt)],
     }),
+    listRiders(u.tenantId),
   ]);
+  // "Mine" = assigned to me, or not assigned to anyone yet
+  const orders = mine ? allOrders.filter((o) => o.riderId === u.id || o.riderId == null) : allOrders;
   const gw = s && u.features.includes("paymentGateways") ? activeGateway(s) : "";
   const rows = orders.map((o) => {
     const paid = o.payments.reduce((a, p) => a + Number(p.amount), 0);
@@ -47,6 +53,12 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
         <Link className="btn-ghost btn-sm" href={`/delivery?date=${addDays(date, 1)}&show=${show}`}>›</Link>
         <span className="mx-1" />{tab("todo", `To deliver (${todo.length})`)}{tab("done", `Delivered (${done.length})`)}{tab("log", "Log")}
       </div>
+      {riders.length > 1 && show !== "log" && (
+        <div className="flex gap-2 text-sm">
+          <Link href={`/delivery?date=${date}&show=${show}`} className={`rounded-full px-3 py-1 font-semibold ${!mine ? "bg-brand text-white" : "bg-white ring-1 ring-line"}`}>All riders</Link>
+          <Link href={`/delivery?date=${date}&show=${show}&who=mine`} className={`rounded-full px-3 py-1 font-semibold ${mine ? "bg-brand text-white" : "bg-white ring-1 ring-line"}`}>Mine + unassigned</Link>
+        </div>
+      )}
       {show !== "log" && <p className="rounded-xl bg-cream px-3 py-2 text-xs text-muted">Payment QR: <b className="text-ink">{qrInfo}</b></p>}
       {show === "log" ? (
         rows.length === 0 ? <Empty>No delivery orders for this day.</Empty> : (
@@ -81,6 +93,7 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
                   <b>{o.billNo}</b>
                   {o.isPreorder && <Badge tone="amber">🗓️ {o.mealSlot}{o.slotTime ? ` · ${fmtTime(o.slotTime)}` : ""}</Badge>}
                   {isDone ? <Badge tone="green">✓ Delivered</Badge> : due > 0 ? <Badge tone="red">Collect {inr(due)}</Badge> : <Badge tone="green">Paid</Badge>}
+                  {!isDone && o.fulfilStatus === "OUT" && <Badge tone="amber">🛵 Out for delivery</Badge>}
                   <span className="ml-auto text-lg font-bold tabular-nums">{inr(Number(o.total))}</span>
                 </div>
                 <div className="text-sm">
@@ -90,13 +103,20 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
                 </div>
                 <div className="text-xs text-muted">{o.items.map((i) => `${Number(i.qty)} × ${i.name}`).join(", ")}{paid > 0 ? ` · paid ${inr(paid)}` : ""}</div>
                 {o.notes && <div className="rounded-lg bg-cream px-2 py-1 text-xs">{o.notes}</div>}
+                {!isDone && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <AssignRider orderId={o.id} riders={riders} value={o.riderId} />
+                    {o.fulfilStatus === "OUT" && o.etaMin != null && o.etaAt && Date.now() - new Date(o.etaAt).getTime() < 30 * 60 * 1000 && <span className="text-xs font-semibold text-emerald-700">⏱️ ETA ~{etaRange(o.etaMin)}</span>}
+                    {o.fulfilStatus === "OUT" && !o.destLat && <span className="text-xs text-amber-700">no customer location (ask them to open the tracking link)</span>}
+                  </div>
+                )}
                 {(isDone || collectedBy) && (
                   <div className="flex flex-wrap gap-x-3 text-xs text-emerald-800">
                     {isDone && <span>✓ Delivered by <b>{o.deliveredBy?.name ?? "—"}</b>{o.deliveredAt ? ` · ${fmtDateTime(o.deliveredAt)}` : ""}</span>}
                     {collectedBy && <span>💵 Payment by <b>{collectedBy.createdBy?.name}</b> ({collectedBy.mode})</span>}
                   </div>
                 )}
-                <DeliveryActions orderId={o.id} due={due} done={isDone} gateway={gw ? GATEWAY_LABEL[gw as Gateway] : ""}
+                <DeliveryActions orderId={o.id} due={due} done={isDone} out={o.fulfilStatus === "OUT"} gateway={gw ? GATEWAY_LABEL[gw as Gateway] : ""}
                   upiText={upi?.kind === "upi" ? upi.text : ""} qrImage={staticQr}
                   today={today} restaurant={s?.name ?? ""} billNo={o.billNo} />
               </div>

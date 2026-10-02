@@ -93,6 +93,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
                   {o.cancelStatus === "REQUESTED" && <Badge tone="amber">Cancel requested</Badge>}
                   {o.isPreorder && <Badge tone="amber">🗓️ {o.mealSlot || "Pre-order"}</Badge>}
                   {!o.isPreorder && o.status === "ACTIVE" && o.fulfilStatus === "DELIVERED" && <Badge tone="green">✓ Delivered</Badge>}
+                  {!o.isPreorder && o.status === "ACTIVE" && o.fulfilStatus === "OUT" && <Badge tone="amber">🛵 Out for delivery</Badge>}
                   {o.isPreorder && o.status === "ACTIVE" && (o.fulfilStatus === "DELIVERED" ? <Badge tone="green">✓ Delivered</Badge> : o.fulfilStatus === "READY" ? <Badge tone="brand">Ready</Badge> : <Badge tone="gray">⏳ Pending</Badge>)}
                 </div>
                 <div className="truncate text-sm">{o.customer?.name ?? "Walk-in"}{o.tableNo ? ` · Table ${o.tableNo}` : ""}</div>
