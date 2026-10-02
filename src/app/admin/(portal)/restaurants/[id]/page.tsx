@@ -4,9 +4,9 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireAdmin } from "@/lib/auth";
 import { ROLE_LABEL } from "@/lib/permissions";
-import { fmtDate, fmtDateTime, inr } from "@/lib/format";
+import { fmtDate, fmtDateTime, inr, todayIST } from "@/lib/format";
 import { Badge, Card, PageHeader, Stat } from "@/components/ui";
-import { AddOwner, DeleteTenant, OpenAsOwner, TenantEditor, TenantFeatures, TenantPlan, UserRow } from "@/components/admin";
+import { AddOwner, DeleteTenant, OpenAsOwner, SubscriptionCard, ReplicateButton, TenantEditor, TenantFeatures, TenantPlan, UserRow } from "@/components/admin";
 import { listPlans } from "@/lib/plans";
 
 export default async function TenantPage({ params }: { params: Promise<{ id: string }> }) {
@@ -24,11 +24,14 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
   ]);
   const docs = await db.query.files.findMany({ where: eq(schema.files.tenantId, id), columns: { id: true, kind: true, title: true, filename: true, size: true, docNumber: true, expiry: true }, orderBy: [desc(schema.files.id)] });
   const plan = plans.find((p) => p.key === t.plan);
+  const expired = !!t.validTill && t.validTill < todayIST();
+  const live = t.active && !expired;
   return (
     <div className="space-y-4">
       <Link href="/admin" className="text-sm text-brand">← All restaurants</Link>
       <PageHeader title={t.name} subtitle={<>Login code <b className="font-mono">{t.code}</b> · staff login link: <a className="font-mono underline" href={`/${t.code}`} target="_blank">/{t.code}</a></>}
-        actions={<div className="flex items-center gap-2">{t.active ? <Badge tone="green">Active</Badge> : <Badge tone="amber">Paused</Badge>}{t.active && <OpenAsOwner tenantId={id} name={t.name} />}</div>} />
+        actions={<div className="flex flex-wrap items-center gap-2">{live ? <Badge tone="green">Enabled</Badge> : <Badge tone="red">{expired ? "Expired" : "Disabled"}</Badge>}<ReplicateButton srcId={id} srcName={t.name} srcCode={t.code} />{live && <OpenAsOwner tenantId={id} name={t.name} />}</div>} />
+      <Card title="Subscription & access"><SubscriptionCard id={id} active={t.active} validTill={t.validTill ?? ""} expired={expired} /></Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Orders (all time)" value={Number(stats.n)} />
         <Stat label="Billed (all time)" value={inr(Number(stats.sum))} />

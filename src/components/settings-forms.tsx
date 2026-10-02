@@ -77,7 +77,7 @@ export function SettingsForm({ initial }: { initial: Record<string, string> }) {
       <h3 className="mb-2 mt-6 text-sm font-bold">Bill design</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2"><label className="label">Line under the name</label><input className="input" value={v.billHeaderNote ?? ""} placeholder="e.g. 100% homemade · No MSG · Pure mustard oil" onChange={(e) => set("billHeaderNote", e.target.value)} /></div>
-        <div><label className="label">Social / website line</label><input className="input" value={v.billSocial ?? ""} placeholder="e.g. Insta @alooposto · WhatsApp 98xxxxxx" onChange={(e) => set("billSocial", e.target.value)} /></div>
+        <div><label className="label">Social / website line</label><input className="input" value={v.billSocial ?? ""} placeholder="e.g. Insta @yourhandle · WhatsApp 98xxxxxx" onChange={(e) => set("billSocial", e.target.value)} /></div>
         <div><label className="label">Payment QR on bill</label>
           <select className="input" value={v.billShowQr || "due"} onChange={(e) => set("billShowQr", e.target.value)}>
             <option value="due">Only when money is due</option><option value="always">Always (also on paid bills)</option><option value="never">Never</option>
@@ -250,7 +250,7 @@ export function PaymentSettings({ initial, saved, origin, gatewaysAllowed = true
         </div>
         <div>
           <label className="label">Fixed payment page link (optional)</label>
-          <input className="input" value={v.payLinkUrl} placeholder="e.g. https://razorpay.me/@alooposto" onChange={(e) => set("payLinkUrl", e.target.value)} />
+          <input className="input" value={v.payLinkUrl} placeholder="e.g. https://razorpay.me/@yourname" onChange={(e) => set("payLinkUrl", e.target.value)} />
           <p className="mt-1 text-[11px] text-muted">Any “pay us” page (Razorpay.me, PhonePe / Paytm business link, Instamojo…). Printed as a QR when there is no UPI ID.</p>
         </div>
         {!gatewaysAllowed ? (

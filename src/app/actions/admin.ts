@@ -11,7 +11,7 @@ import { requireAdmin } from "@/lib/auth";
 import { sendMail } from "@/lib/mail";
 import { envAdminEmails, syncEnvAdmins } from "@/lib/admin-env";
 import { assertNotLocked, clearFailures, clientIp, recordFailure } from "@/lib/throttle";
-import { addSampleData, provisionTenant, USERNAME_RE, CODE_RE } from "@/lib/provision";
+import { addSampleData, provisionTenant, replicateTenant, USERNAME_RE, CODE_RE } from "@/lib/provision";
 import { RESERVED_PATHS } from "@/lib/reserved";
 import { FEATURE_KEYS, isComingSoon, type FeatureKey } from "@/lib/features";
 
@@ -213,7 +213,29 @@ export async function setTenantActiveAction(id: number, active: boolean): Promis
     await requireAdmin();
     await db.update(schema.tenants).set({ active }).where(eq(schema.tenants.id, id));
     revalidatePath(`/admin/restaurants/${id}`); revalidatePath("/admin");
-    return { ok: true };
+    return { ok: true, msg: active ? "Enabled." : "Disabled." };
+  } catch (e) { return err(e); }
+}
+
+/** Set (or clear) the paid/trial end date. Past this date the account locks on its own. */
+export async function setTenantValidTillAction(id: number, date: string): Promise<R> {
+  try {
+    await requireAdmin();
+    const d = date.trim();
+    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error("Pick a valid date.");
+    await db.update(schema.tenants).set({ validTill: d || null }).where(eq(schema.tenants.id, id));
+    revalidatePath(`/admin/restaurants/${id}`); revalidatePath("/admin");
+    return { ok: true, msg: d ? `Active until ${d}.` : "Expiry cleared (no end date)." };
+  } catch (e) { return err(e); }
+}
+
+/** Make a full copy of a restaurant (menu, recipes, settings, branding) as a new restaurant, with dummy orders to try it out. */
+export async function replicateTenantAction(srcId: number, v: { name: string; code: string; ownerName: string; ownerUsername: string; ownerPassword: string }): Promise<R & { id?: number; code?: string }> {
+  try {
+    await requireAdmin();
+    const t = await replicateTenant(db, srcId, v);
+    revalidatePath("/admin");
+    return { ok: true, id: t.id, code: t.code, msg: `Copied to “${t.name}”.` };
   } catch (e) { return err(e); }
 }
 

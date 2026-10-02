@@ -28,7 +28,7 @@ export const plans = pgTable("plans", {
 export const tenants = pgTable("tenants", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  code: text("code").notNull().unique(), // login code, e.g. "alooposto"
+  code: text("code").notNull().unique(), // login code, e.g. "my-restaurant"
   active: boolean("active").notNull().default(true),
   contactName: text("contact_name").notNull().default(""),
   contactEmail: text("contact_email").notNull().default(""),
@@ -38,6 +38,7 @@ export const tenants = pgTable("tenants", {
   featuresOff: text("features_off").array().notNull().default([]), // features the owner switched off for now (still allowed by super admin)
   featuresRemoved: text("features_removed").array().notNull().default([]), // taken out of this restaurant's plan by the super admin
   maxUsers: integer("max_users"),                                  // login limit for this restaurant (null = the plan's limit)
+  validTill: day("valid_till"),                                    // paid/trial end date; past this the account auto-locks (null = no expiry)
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -89,7 +90,7 @@ export const adminOtps = pgTable("admin_otps", {
 
 // Wrong-password counter for every login form (kept in the database so it survives restarts)
 export const loginThrottle = pgTable("login_throttle", {
-  key: text("key").primaryKey(),              // e.g. "user:alooposto:owner", "ip:1.2.3.4", "admin:me@x.com"
+  key: text("key").primaryKey(),              // e.g. "user:my-restaurant:owner", "ip:1.2.3.4", "admin:me@x.com"
   fails: integer("fails").notNull().default(0),
   lockedUntil: timestamp("locked_until"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -332,7 +333,7 @@ export const recipes = pgTable("recipes", {
 export const recipeIngredients = pgTable("recipe_ingredients", {
   id: serial("id").primaryKey(),
   recipeId: integer("recipe_id").notNull().references(() => recipes.id, { onDelete: "cascade" }),
-  ingredientId: integer("ingredient_id").notNull().references(() => ingredients.id),
+  ingredientId: integer("ingredient_id").notNull().references(() => ingredients.id, { onDelete: "cascade" }),
   qty: qtyN("qty").notNull(), // per batch
   unit: text("unit").notNull(),
 });
@@ -340,7 +341,7 @@ export const recipeIngredients = pgTable("recipe_ingredients", {
 export const recipePackaging = pgTable("recipe_packaging", {
   id: serial("id").primaryKey(),
   recipeId: integer("recipe_id").notNull().references(() => recipes.id, { onDelete: "cascade" }),
-  packagingId: integer("packaging_id").notNull().references(() => packaging.id),
+  packagingId: integer("packaging_id").notNull().references(() => packaging.id, { onDelete: "cascade" }),
   qtyPerPlate: qtyN("qty_per_plate").notNull(),
 });
 
@@ -348,7 +349,7 @@ export const recipePackaging = pgTable("recipe_packaging", {
 export const recipeComponents = pgTable("recipe_components", {
   id: serial("id").primaryKey(),
   recipeId: integer("recipe_id").notNull().references(() => recipes.id, { onDelete: "cascade" }),
-  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id),
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
   qtyPerPlate: qtyN("qty_per_plate").notNull(),
 });
 
@@ -440,7 +441,7 @@ export const orders = pgTable("orders", {
 export const orderItems = pgTable("order_items", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id),
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   qty: qtyN("qty").notNull(),
   rate: money("rate").notNull(),
@@ -453,7 +454,7 @@ export const orderItems = pgTable("order_items", {
 export const orderPackaging = pgTable("order_packaging", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  packagingId: integer("packaging_id").notNull().references(() => packaging.id),
+  packagingId: integer("packaging_id").notNull().references(() => packaging.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   qty: qtyN("qty").notNull(),
   unitPrice: money("unit_price").notNull(), // charged to customer (0 unless the order charges packaging)
@@ -542,9 +543,9 @@ export const wastage = pgTable("wastage", {
   id: serial("id").primaryKey(),
   tenantId: tid(),
   date: day("date").notNull(),
-  menuItemId: integer("menu_item_id").references(() => menuItems.id),
+  menuItemId: integer("menu_item_id").references(() => menuItems.id, { onDelete: "set null" }),
   plates: qtyN("plates"),
-  ingredientId: integer("ingredient_id").references(() => ingredients.id),
+  ingredientId: integer("ingredient_id").references(() => ingredients.id, { onDelete: "set null" }),
   qty: qtyN("qty"),
   cost: money("cost").notNull(),
   reason: text("reason").notNull().default(""),
@@ -588,7 +589,7 @@ export const expenses = pgTable("expenses", {
   date: day("date").notNull(),
   category: text("category").notNull(),
   description: text("description").notNull().default(""),
-  ingredientId: integer("ingredient_id").references(() => ingredients.id),
+  ingredientId: integer("ingredient_id").references(() => ingredients.id, { onDelete: "set null" }),
   qty: qtyN("qty"),
   vendorId: integer("vendor_id").references(() => vendors.id),
   staffId: integer("staff_id").references(() => staff.id),

@@ -1,6 +1,7 @@
 import "server-only";
 import { activeGateway } from "./gateway";
 import { featureInfo, tenantWithPlan } from "./plans";
+import { isLive } from "./tenant-status";
 import crypto from "node:crypto";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -18,7 +19,7 @@ export async function loadStorefront(codeRaw: string) {
   const tp = await tenantWithPlan({ code });
   if (!tp) return null;
   const t = tp.t, feats = featureInfo(t, tp.plan).active;
-  if (!t.active || !feats.includes("onlineOrders")) return null;
+  if (!isLive(t) || !feats.includes("onlineOrders")) return null;
   const [s, items, slots] = await Promise.all([
     db.query.settings.findFirst({ where: eq(schema.settings.tenantId, t.id) }),
     db.query.menuItems.findMany({ where: and(eq(schema.menuItems.tenantId, t.id), eq(schema.menuItems.active, true), eq(schema.menuItems.available, true)), with: { category: true } }),

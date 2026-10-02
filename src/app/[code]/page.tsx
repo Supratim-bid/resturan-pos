@@ -5,7 +5,7 @@ import { getUser } from "@/lib/auth";
 import { isRestaurantPath } from "@/lib/reserved";
 import { LoginScreen } from "../login/screen";
 
-// Restaurant login link: https://your-app/<restaurant-code>, e.g. /alooposto
+// Restaurant login link: https://your-app/<restaurant-code>, e.g. /my-restaurant
 export default async function RestaurantLogin({ params }: { params: Promise<{ code: string }> }) {
   const code = decodeURIComponent((await params).code).trim().toLowerCase();
   if (!isRestaurantPath(code)) notFound();

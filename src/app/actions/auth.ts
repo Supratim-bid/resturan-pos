@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import { COOKIE, TENANT_COOKIE, signSession } from "@/lib/session";
 import { MODULES, can, effectivePerms, type ModuleKey } from "@/lib/permissions";
 import { assertNotLocked, clearFailures, clientIp, recordFailure } from "@/lib/throttle";
+import { isLive, notLiveReason } from "@/lib/tenant-status";
 
 const fail = async (msg: string) => { await new Promise((r) => setTimeout(r, 600)); return { error: msg }; };
 
@@ -22,7 +23,7 @@ export async function login(_: unknown, fd: FormData): Promise<{ error?: string 
   try { await assertNotLocked([userKey, ipKey]); } catch (e) { return { error: (e as Error).message }; }
   const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.code, code) });
   if (!t) { await recordFailure([{ key: ipKey, limit: 30 }]); return fail("Restaurant code not found."); }
-  if (!t.active) return fail("This restaurant's account is paused. Please contact support.");
+  if (!isLive(t)) return fail(notLiveReason(t));
   const u = await db.query.users.findFirst({ where: and(eq(schema.users.tenantId, t.id), eq(schema.users.username, username)) });
   if (!u || !u.active || !(await bcrypt.compare(password, u.passwordHash))) {
     await recordFailure([{ key: userKey, limit: 5 }, { key: ipKey, limit: 30 }]);

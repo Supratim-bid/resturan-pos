@@ -24,5 +24,5 @@ export async function middleware(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 export const config = {
-  matcher: ["/((?!login|admin/login|_next|img/|logo|platform-logo.svg|demo-alooposto-logo.jpg|icon|apple-icon|manifest.webmanifest|favicon.ico|api/health|api/pay/|sw.js|offline.html|pwa/).*)"],
+  matcher: ["/((?!login|admin/login|_next|img/|logo|platform-logo.svg|demo-logo.jpg|icon|apple-icon|manifest.webmanifest|favicon.ico|api/health|api/pay/|sw.js|offline.html|pwa/).*)"],
 };

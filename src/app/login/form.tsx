@@ -7,7 +7,7 @@ export function LoginForm({ code, known }: { code: string; known: boolean }) {
   return (
     <form action={action} className="card space-y-4 !p-5">
       {edit ? (
-        <div><label className="label">Restaurant code</label><input name="restaurant" defaultValue={code} autoCapitalize="none" className="input" placeholder="e.g. alooposto" required /></div>
+        <div><label className="label">Restaurant code</label><input name="restaurant" defaultValue={code} autoCapitalize="none" className="input" placeholder="e.g. my-restaurant" required /></div>
       ) : (
         <div className="flex items-center justify-between rounded-xl bg-gold-light/60 px-3 py-2 text-sm">
           <span>Restaurant: <b>{code}</b></span>

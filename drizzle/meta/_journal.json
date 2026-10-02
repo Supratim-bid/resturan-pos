@@ -176,6 +176,20 @@
       "when": 1790947465266,
       "tag": "0024_rider_eta",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790961595857,
+      "tag": "0025_valid_till",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790961860125,
+      "tag": "0026_fk_cascade",
+      "breakpoints": true
     }
   ]
 }

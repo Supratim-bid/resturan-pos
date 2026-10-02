@@ -1,5 +1,5 @@
 // Top-level paths used by the app itself; a restaurant code can't be one of these
-// (restaurants log in at /<code>, e.g. /alooposto).
+// (restaurants log in at /<code>, e.g. /my-restaurant).
 export const RESERVED_PATHS = [
   "login", "admin", "api", "online-orders", "bill", "img", "logo", "no-access", "more", "orders", "preorders", "customers", "daily-menu", "menu", "recipes",
   "ingredients", "packaging", "stock", "wastage", "expenses", "reimbursements", "vendors", "staff", "cash", "settlements", "reports", "reminders", "settings", "kot", "delivery", "money", "info", "install", "pwa", "sw.js", "offline.html",

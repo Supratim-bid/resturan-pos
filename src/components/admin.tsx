@@ -6,6 +6,7 @@ import {
   resetUserPasswordAction, deleteTenantAction, addSuperAdminAction, setSuperAdminActiveAction, setTenantFeatureAction,
   setTenantPlanAction, savePlanAction, deletePlanAction, openTenantAsOwnerAction, editUserAction, deleteUserAction,
   uploadResourceAction, deleteResourceAction, replySupportAction,
+  setTenantValidTillAction, replicateTenantAction,
 } from "@/app/actions/admin";
 import { useRef } from "react";
 import { FEATURES, FEATURE_GROUPS, FEATURE_KEYS, type FeatureKey, type FeatureGroup } from "@/lib/features";
@@ -80,7 +81,7 @@ export function NewTenantButton({ plans = [] }: { plans?: PlanOpt[] }) {
       <Modal open={open} onClose={() => setOpen(false)} title="New restaurant" wide>
         <div className="grid gap-3 sm:grid-cols-2">
           {field("Restaurant name", v.name, (x) => setV((o) => ({ ...o, name: x, code: o.code || "" })), { half: true })}
-          {field("Restaurant code (for login)", v.code, (x) => s("code")(x.toLowerCase().replace(/[^a-z0-9-]/g, "")), { half: true, ph: "e.g. alooposto", help: "Staff type this on the login screen. Lowercase letters, numbers, dashes." })}
+          {field("Restaurant code (for login)", v.code, (x) => s("code")(x.toLowerCase().replace(/[^a-z0-9-]/g, "")), { half: true, ph: "e.g. my-restaurant", help: "Staff type this on the login screen. Lowercase letters, numbers, dashes." })}
           {field("Owner's full name", v.ownerName, s("ownerName"), { half: true, help: "Shown in the app when they are logged in" })}
           {field("Owner phone", v.ownerPhone, s("ownerPhone"), { half: true, type: "tel" })}
           {field("Owner username", v.ownerUsername, (x) => s("ownerUsername")(x.toLowerCase()), { half: true })}
@@ -122,10 +123,6 @@ export function TenantEditor({ t }: { t: T }) {
       <Msg m={m} />
       <div className="flex flex-wrap gap-2">
         <button className="btn-primary" disabled={pending} onClick={() => start(async () => { const r = await updateTenantAction(t.id, v); setM(r.ok ? { ok: true, t: r.msg ?? "Saved" } : { ok: false, t: r.error }); router.refresh(); })}>Save</button>
-        <button className={t.active ? "btn-danger" : "btn-gold"} disabled={pending} onClick={() => {
-          if (t.active && !confirm("Pause this restaurant? Nobody from it can log in until you reactivate it.")) return;
-          start(async () => { await setTenantActiveAction(t.id, !t.active); router.refresh(); });
-        }}>{t.active ? "Pause account" : "Reactivate account"}</button>
       </div>
     </div>
   );
@@ -207,6 +204,68 @@ export function SupportReply({ id, existing = "" }: { id: number; existing?: str
       <div className="mt-1"><button className="btn-primary btn-sm" disabled={pending} onClick={() => start(async () => { const r = await replySupportAction(id, reply); setM(r.ok ? { ok: true, t: r.msg ?? "Sent." } : { ok: false, t: r.error }); if (r.ok) router.refresh(); })}>{pending ? "Sending…" : existing ? "Update reply" : "Send reply"}</button></div>
       <Msg m={m} />
     </div>
+  );
+}
+
+/** Enable/disable a restaurant and set a paid/trial end date (past the date it auto-locks). */
+export function SubscriptionCard({ id, active, validTill, expired }: { id: number; active: boolean; validTill: string; expired: boolean }) {
+  const [till, setTill] = useState(validTill);
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-semibold">{active && !expired ? <span className="text-emerald-700">● Enabled</span> : <span className="text-red-700">● Disabled</span>}</div>
+          <div className="text-xs text-muted">{active ? (expired ? "Subscription date has passed - the restaurant is locked." : "Staff can log in and take orders.") : "Switched off - nobody can log in."}</div>
+        </div>
+        <button className={active ? "btn-danger" : "btn-primary"} disabled={pending} onClick={() => {
+          if (active && !confirm("Disable this restaurant? Nobody from it can log in or take online orders until you enable it again.")) return;
+          start(async () => { const r = await setTenantActiveAction(id, !active); if (!r.ok) alert(r.error); router.refresh(); });
+        }}>{active ? "Disable now" : "Enable"}</button>
+      </div>
+      <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
+        <label className="grid gap-0.5 text-sm"><span className="text-xs font-semibold text-muted">Paid / trial valid till</span>
+          <input type="date" className="input !w-auto !py-1.5" value={till} onChange={(e) => setTill(e.target.value)} /></label>
+        <button className="btn-ghost btn-sm" disabled={pending} onClick={() => start(async () => { const r = await setTenantValidTillAction(id, till); setM(r.ok ? { ok: true, t: r.msg ?? "Saved." } : { ok: false, t: r.error }); router.refresh(); })}>Save date</button>
+        {till && <button className="btn-ghost btn-sm" disabled={pending} onClick={() => { setTill(""); start(async () => { await setTenantValidTillAction(id, ""); router.refresh(); }); }}>Clear</button>}
+        <p className="w-full text-xs text-muted">Leave blank for no end date. On the day after this date, the restaurant locks on its own (good for trials / unpaid months).</p>
+      </div>
+      <Msg m={m} />
+    </div>
+  );
+}
+
+/** Make a full copy of this restaurant (menu, recipes, settings) as a new restaurant with dummy orders. */
+export function ReplicateButton({ srcId, srcName, srcCode }: { srcId: number; srcName: string; srcCode: string }) {
+  const [open, setOpen] = useState(false);
+  const rand = Math.random().toString(36).slice(2, 8);
+  const [v, setV] = useState({ name: `${srcName} (Copy)`, code: `${srcCode}-copy`.slice(0, 30), ownerName: "Owner", ownerUsername: `${srcCode}copy`.replace(/[^a-z0-9]/g, "").slice(0, 28), ownerPassword: `Try-${rand}` });
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <>
+      <button className="btn-ghost btn-sm" onClick={() => { setOpen(true); setM(null); }}>⧉ Replicate</button>
+      <Modal open={open} onClose={() => setOpen(false)} title={`Copy “${srcName}” to a new restaurant`}>
+        <p className="mb-3 text-sm text-muted">Copies the menu, recipes, ingredients, packaging, branding and settings into a brand-new restaurant, and adds a week of dummy orders so you can try it. Payment-gateway keys are not copied.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {field("New restaurant name", v.name, (x) => setV({ ...v, name: x }))}
+          {field("New login code", v.code, (x) => setV({ ...v, code: x.toLowerCase().replace(/[^a-z0-9-]/g, "") }), { half: true, help: "lowercase, unique" })}
+          {field("Owner name", v.ownerName, (x) => setV({ ...v, ownerName: x }), { half: true })}
+          {field("Owner username", v.ownerUsername, (x) => setV({ ...v, ownerUsername: x.toLowerCase() }), { half: true })}
+          {field("Owner password", v.ownerPassword, (x) => setV({ ...v, ownerPassword: x }), { half: true })}
+        </div>
+        {m && <div className="mt-3"><Msg m={m} /></div>}
+        <button className="btn-primary mt-3 w-full" disabled={pending} onClick={() => start(async () => {
+          const r = await replicateTenantAction(srcId, v);
+          if (!r.ok) { setM({ ok: false, t: r.error }); return; }
+          setM({ ok: true, t: `Done — new code “${r.code}”. Owner: ${v.ownerUsername} / ${v.ownerPassword}` });
+          router.refresh();
+        })}>{pending ? "Copying…" : "Create the copy"}</button>
+      </Modal>
+    </>
   );
 }
 

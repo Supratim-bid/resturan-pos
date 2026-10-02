@@ -80,7 +80,7 @@ export async function GET(req: Request) {
   return new Response(buf, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="alooposto-report-${from}-to-${to}.xlsx"`,
+      "Content-Disposition": `attachment; filename="${u.tenantCode}-report-${from}-to-${to}.xlsx"`,
       "Cache-Control": "no-store",
     },
   });

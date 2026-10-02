@@ -60,5 +60,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ kind: st
     const ings = new Map((await db.query.ingredients.findMany({ where: eq(schema.ingredients.tenantId, u.tenantId) })).map((i) => [i.id, i]));
     rows = [["Date", "Ingredient", "Unit", "Qty (+in / -out)", "Type", "Ref", "Notes"], ...ms.map((m) => [m.date, ings.get(m.ingredientId)?.name ?? "", ings.get(m.ingredientId)?.unit ?? "", m.qty, m.type, m.refType ? `${m.refType} ${m.refId}` : "", m.notes])];
   } else return new Response("Unknown export", { status: 404 });
-  return new Response(csv(rows), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="alooposto-${kind}-${from}-to-${to}.csv"` } });
+  return new Response(csv(rows), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${u.tenantCode}-${kind}-${from}-to-${to}.csv"` } });
 }

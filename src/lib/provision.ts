@@ -32,7 +32,7 @@ export type NewTenant = {
 export async function provisionTenant(db: DB, t: NewTenant) {
   const code = t.code.trim().toLowerCase(), username = t.ownerUsername.trim().toLowerCase();
   if (!t.name.trim()) throw new Error("Enter the restaurant name.");
-  if (!CODE_RE.test(code)) throw new Error("Restaurant code: 2-31 lowercase letters, numbers or dashes (e.g. alooposto).");
+  if (!CODE_RE.test(code)) throw new Error("Restaurant code: 2-31 lowercase letters, numbers or dashes (e.g. my-restaurant).");
   if (RESERVED_PATHS.includes(code)) throw new Error(`"${code}" is used by the app itself - pick another restaurant code.`);
   if (!t.ownerName.trim()) throw new Error("Enter the owner's name.");
   if (!USERNAME_RE.test(username)) throw new Error("Owner username: 3-30 letters/numbers, no spaces.");
@@ -136,3 +136,141 @@ export async function addSampleData(db: DB, tenantId: number) {
     { tenantId, title: "Pay rent", dueDate: "2026-10-05", repeat: "MONTHLY" },
   ]);
 }
+
+/** Make a full working copy of an existing restaurant as a NEW restaurant: menu, recipes, ingredients,
+ *  packaging, settings and branding are copied (payment-gateway secrets are NOT), plus a week of dummy
+ *  orders so reports and the dashboard look alive. */
+export async function replicateTenant(db: DB, srcId: number, t: NewTenant) {
+  const code = t.code.trim().toLowerCase(), username = t.ownerUsername.trim().toLowerCase();
+  if (!t.name.trim()) throw new Error("Enter the new restaurant name.");
+  if (!CODE_RE.test(code)) throw new Error("Restaurant code: 2-31 lowercase letters, numbers or dashes.");
+  if (RESERVED_PATHS.includes(code)) throw new Error(`"${code}" is used by the app itself - pick another code.`);
+  if (!t.ownerName.trim()) throw new Error("Enter the owner's name.");
+  if (!USERNAME_RE.test(username)) throw new Error("Owner username: 3-30 letters/numbers.");
+  if ((t.ownerPassword ?? "").length < 6) throw new Error("Owner password must be at least 6 characters.");
+  const src = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, srcId) });
+  if (!src) throw new Error("Source restaurant not found.");
+  if (await db.query.tenants.findFirst({ where: eq(schema.tenants.code, code) })) throw new Error(`The code "${code}" is already taken.`);
+
+  return db.transaction(async (tx) => {
+    // 1. the new tenant - same plan/features as the source
+    const [row] = await tx.insert(schema.tenants).values({
+      name: t.name.trim(), code, contactName: t.ownerName.trim(), contactEmail: t.contactEmail?.trim() ?? "", contactPhone: t.contactPhone?.trim() ?? "",
+      plan: src.plan, features: src.features, featuresOff: src.featuresOff, featuresRemoved: src.featuresRemoved, maxUsers: src.maxUsers,
+      notes: `Copied from ${src.name} (#${src.id})`,
+    }).returning();
+    const tenantId = row.id;
+
+    // 2. copy images (logo, QR, dish photos) and remember old id -> new id
+    const imgMap = new Map<number, number>();
+    const imgs = await tx.query.images.findMany({ where: eq(schema.images.tenantId, srcId) });
+    for (const im of imgs) {
+      const [ni] = await tx.insert(schema.images).values({ tenantId, mime: im.mime, data: im.data, width: im.width, height: im.height }).returning({ id: schema.images.id });
+      imgMap.set(im.id, ni.id);
+    }
+
+    // 3. settings - copy everything, new name, remap images, but DO NOT copy payment-gateway secrets
+    const srcSettings = await tx.query.settings.findFirst({ where: eq(schema.settings.tenantId, srcId) });
+    if (srcSettings) {
+      const { tenantId: _st, ...rest } = srcSettings;
+      void _st;
+      await tx.insert(schema.settings).values({
+        ...rest, tenantId, name: t.name.trim(),
+        logoImageId: srcSettings.logoImageId ? imgMap.get(srcSettings.logoImageId) ?? null : null,
+        qrImageId: srcSettings.qrImageId ? imgMap.get(srcSettings.qrImageId) ?? null : null,
+        payGateway: "", instamojoClientId: "", instamojoClientSecret: "", instamojoSalt: "", instamojoTest: false,
+        cashfreeAppId: "", cashfreeSecret: "", cashfreeTest: false,
+      });
+    } else {
+      await tx.insert(schema.settings).values({ tenantId, name: t.name.trim(), billPrefix: code.slice(0, 3).toUpperCase() + "-" });
+    }
+
+    // owner login
+    await tx.insert(schema.users).values({ tenantId, name: t.ownerName.trim(), username, phone: t.ownerPhone?.trim() ?? "", passwordHash: await bcrypt.hash(t.ownerPassword, 10), role: "OWNER" });
+
+    // 4. editable lists
+    const lk = await tx.query.lookups.findMany({ where: eq(schema.lookups.tenantId, srcId) });
+    if (lk.length) await tx.insert(schema.lookups).values(lk.map((l) => ({ tenantId, kind: l.kind, value: l.value, sortOrder: l.sortOrder })));
+
+    // 5. categories
+    const catMap = new Map<number, number>();
+    const cats = await tx.query.categories.findMany({ where: eq(schema.categories.tenantId, srcId) });
+    for (const c of cats) { const [n] = await tx.insert(schema.categories).values({ tenantId, name: c.name, sortOrder: c.sortOrder }).returning({ id: schema.categories.id }); catMap.set(c.id, n.id); }
+
+    // 6. menu items
+    const itemMap = new Map<number, number>();
+    const items = await tx.query.menuItems.findMany({ where: eq(schema.menuItems.tenantId, srcId) });
+    for (const m of items) {
+      const { id, tenantId: _t, categoryId, imageId, ...rest } = m; void id; void _t;
+      const [n] = await tx.insert(schema.menuItems).values({ ...rest, tenantId, categoryId: catMap.get(categoryId)!, imageId: imageId ? imgMap.get(imageId) ?? null : null }).returning({ id: schema.menuItems.id });
+      itemMap.set(m.id, n.id);
+    }
+
+    // 7. ingredients
+    const ingMap = new Map<number, number>();
+    const ings = await tx.query.ingredients.findMany({ where: eq(schema.ingredients.tenantId, srcId) });
+    for (const g of ings) { const { id, tenantId: _t, ...rest } = g; void id; void _t; const [n] = await tx.insert(schema.ingredients).values({ ...rest, tenantId }).returning({ id: schema.ingredients.id }); ingMap.set(g.id, n.id); }
+
+    // 8. packaging
+    const packMap = new Map<number, number>();
+    const packs = await tx.query.packaging.findMany({ where: eq(schema.packaging.tenantId, srcId) });
+    for (const p of packs) { const { id, tenantId: _t, imageId, ...rest } = p; void id; void _t; const [n] = await tx.insert(schema.packaging).values({ ...rest, tenantId, imageId: imageId ? imgMap.get(imageId) ?? null : null }).returning({ id: schema.packaging.id }); packMap.set(p.id, n.id); }
+
+    // 9. recipes (+ their ingredients / packaging / components)
+    const recs = await tx.query.recipes.findMany({ where: eq(schema.recipes.tenantId, srcId) });
+    for (const r of recs) {
+      const { id, tenantId: _t, menuItemId, updatedAt, ...rest } = r; void id; void _t; void updatedAt;
+      const newItem = itemMap.get(menuItemId); if (!newItem) continue;
+      const [nr] = await tx.insert(schema.recipes).values({ ...rest, tenantId, menuItemId: newItem }).returning({ id: schema.recipes.id });
+      const [ri, rp, rc] = await Promise.all([
+        tx.query.recipeIngredients.findMany({ where: eq(schema.recipeIngredients.recipeId, r.id) }),
+        tx.query.recipePackaging.findMany({ where: eq(schema.recipePackaging.recipeId, r.id) }),
+        tx.query.recipeComponents.findMany({ where: eq(schema.recipeComponents.recipeId, r.id) }),
+      ]);
+      if (ri.length) await tx.insert(schema.recipeIngredients).values(ri.filter((x) => ingMap.has(x.ingredientId)).map((x) => ({ recipeId: nr.id, ingredientId: ingMap.get(x.ingredientId)!, qty: x.qty, unit: x.unit })));
+      if (rp.length) await tx.insert(schema.recipePackaging).values(rp.filter((x) => packMap.has(x.packagingId)).map((x) => ({ recipeId: nr.id, packagingId: packMap.get(x.packagingId)!, qtyPerPlate: x.qtyPerPlate })));
+      if (rc.length) await tx.insert(schema.recipeComponents).values(rc.filter((x) => itemMap.has(x.menuItemId)).map((x) => ({ recipeId: nr.id, menuItemId: itemMap.get(x.menuItemId)!, qtyPerPlate: x.qtyPerPlate })));
+    }
+
+    // 10. dummy data so the copy looks alive
+    await addDummyOrders(tx, tenantId, [...itemMap.values()]);
+    return row;
+  });
+}
+
+/** A handful of customers + a week of random orders/payments, for a demo/sandbox copy. */
+async function addDummyOrders(db: DB, tenantId: number, itemIds: number[]) {
+  if (!itemIds.length) return;
+  const items = await db.query.menuItems.findMany({ where: eq(schema.menuItems.tenantId, tenantId) });
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const names = ["Riya Sen", "Arjun Das", "Priya Nair", "Rahul Gupta", "Sneha Roy", "Amit Verma"];
+  const custs = await db.insert(schema.customers).values(
+    names.map((name, i) => ({ tenantId, name: `${name} (Demo)`, phone: `90000000${String(i).padStart(2, "0")}`, flat: `Flat ${i + 1}0${i}`, area: "Demo Society" })),
+  ).returning({ id: schema.customers.id });
+  const today = todayISODate();
+  const types = ["Dine-in", "Takeaway", "Delivery"];
+  let seq = 1;
+  for (let d = 6; d >= 0; d--) {
+    const date = shiftDate(today, -d);
+    const n = 2 + Math.floor(Math.random() * 4); // 2-5 orders/day
+    for (let k = 0; k < n; k++) {
+      const pick = itemIds.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 3));
+      const lines = pick.map((id) => { const m = byId.get(id)!; const qty = 1 + Math.floor(Math.random() * 2); return { id, qty, rate: Number(m.price), name: m.name, cost: Number(m.manualCost || 0) }; });
+      const itemsTotal = lines.reduce((a, l) => a + l.rate * l.qty, 0);
+      const foodCost = lines.reduce((a, l) => a + l.cost * l.qty, 0);
+      const total = itemsTotal;
+      const cust = custs[Math.floor(Math.random() * custs.length)];
+      const billNo = `DEMO-${String(seq).padStart(4, "0")}`; seq++;
+      const [o] = await db.insert(schema.orders).values({
+        tenantId, orderNo: seq, billNo, date, orderType: types[Math.floor(Math.random() * types.length)], customerId: cust.id,
+        itemsTotal, taxable: itemsTotal, total, foodCost, gstRate: 0, gstAmount: 0, roundOff: 0, status: "ACTIVE",
+      }).returning({ id: schema.orders.id });
+      await db.insert(schema.orderItems).values(lines.map((l) => ({ orderId: o.id, menuItemId: l.id, name: l.name, qty: l.qty, rate: l.rate, lineTotal: l.rate * l.qty, unitCost: l.cost })));
+      // ~70% paid
+      if (Math.random() < 0.7) await db.insert(schema.payments).values({ tenantId, orderId: o.id, customerId: cust.id, amount: total, mode: Math.random() < 0.5 ? "Cash" : "UPI", date });
+    }
+  }
+}
+
+const todayISODate = () => { const n = new Date(Date.now() + 5.5 * 3600 * 1000); return n.toISOString().slice(0, 10); };
+const shiftDate = (iso: string, days: number) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
