@@ -108,6 +108,36 @@ export const images = pgTable("images", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// File store for non-image files (PDFs etc.): super-admin resources (tenant_id null) and restaurant documents (FSSAI, GST…)
+export const files = pgTable("files", {
+  id: serial("id").primaryKey(),
+  tenantId: integer("tenant_id"),               // null = platform resource shared to all restaurants
+  kind: text("kind").notNull().default("DOC"),  // ADMIN_RESOURCE | FSSAI | GST | DOC
+  title: text("title").notNull().default(""),
+  filename: text("filename").notNull().default(""),
+  mime: text("mime").notNull(),
+  size: integer("size").notNull().default(0),
+  data: bytea("data").notNull(),
+  docNumber: text("doc_number").notNull().default(""), // FSSAI / GST number if given
+  expiry: day("expiry"),                        // licence expiry if given
+  uploadedById: integer("uploaded_by_id"),      // restaurant user who uploaded (null for admin)
+  byAdmin: boolean("by_admin").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("files_tenant").on(t.tenantId), index("files_kind").on(t.kind)]);
+
+// Owner -> super admin support messages (answered within 24h)
+export const supportMessages = pgTable("support_messages", {
+  id: serial("id").primaryKey(),
+  tenantId: tid(),
+  fromUserId: integer("from_user_id"),
+  fromName: text("from_name").notNull().default(""),
+  body: text("body").notNull(),
+  reply: text("reply").notNull().default(""),
+  repliedByEmail: text("replied_by_email").notNull().default(""),
+  repliedAt: timestamp("replied_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("support_tenant").on(t.tenantId)]);
+
 // ---------- Settings & accounts ----------
 export const settings = pgTable("settings", {
   tenantId: integer("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),

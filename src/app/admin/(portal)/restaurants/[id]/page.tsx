@@ -22,6 +22,7 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
     listPlans(),
     db.query.adminImpersonations.findMany({ where: eq(schema.adminImpersonations.tenantId, id), orderBy: [desc(schema.adminImpersonations.id)], limit: 20 }),
   ]);
+  const docs = await db.query.files.findMany({ where: eq(schema.files.tenantId, id), columns: { id: true, kind: true, title: true, filename: true, size: true, docNumber: true, expiry: true }, orderBy: [desc(schema.files.id)] });
   const plan = plans.find((p) => p.key === t.plan);
   return (
     <div className="space-y-4">
@@ -44,6 +45,18 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
           ))}
         </ul>
         <p className="mt-2 text-xs text-muted">Edit, reset password or delete any login here. Owners also manage their own staff logins and tab access inside the app (Settings &amp; Users).</p>
+      </Card>
+      <Card title="Documents (FSSAI, GST…)">
+        {docs.length ? (
+          <ul className="divide-y divide-line text-sm">
+            {docs.map((f) => (
+              <li key={f.id} className="flex items-center justify-between gap-2 py-2">
+                <div><div className="font-medium">{f.kind}: {f.title || f.filename}</div><div className="text-xs text-muted">{f.docNumber ? `No. ${f.docNumber} · ` : ""}{f.expiry ? `valid till ${fmtDate(f.expiry)} · ` : ""}{Math.max(1, Math.round(f.size / 1000))} KB</div></div>
+                <a href={`/file/${f.id}`} className="btn-ghost btn-sm">⬇ Download</a>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-sm text-muted">The owner hasn&apos;t uploaded any documents yet (they add these in Help &amp; Documents).</p>}
       </Card>
       <Card title="Support access log">
         <p className="mb-2 text-sm text-muted">Every time a super admin opened this restaurant as its owner. Kept for your records (and partner revenue checks).</p>

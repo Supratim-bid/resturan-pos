@@ -5,7 +5,9 @@ import {
   requestOtpAction, verifyOtpAction, passwordLoginAction, createTenantAction, updateTenantAction, setTenantActiveAction, addOwnerAction,
   resetUserPasswordAction, deleteTenantAction, addSuperAdminAction, setSuperAdminActiveAction, setTenantFeatureAction,
   setTenantPlanAction, savePlanAction, deletePlanAction, openTenantAsOwnerAction, editUserAction, deleteUserAction,
+  uploadResourceAction, deleteResourceAction, replySupportAction,
 } from "@/app/actions/admin";
+import { useRef } from "react";
 import { FEATURES, FEATURE_GROUPS, FEATURE_KEYS, type FeatureKey, type FeatureGroup } from "@/lib/features";
 import { Modal } from "./crud";
 
@@ -161,6 +163,50 @@ export function ResetPassword({ tenantId, userId, name }: { tenantId: number; us
       if (!pw) return;
       start(async () => { const r = await resetUserPasswordAction(tenantId, userId, pw); alert(r.ok ? r.msg ?? "Done" : r.error); router.refresh(); });
     }}>Reset password</button>
+  );
+}
+
+/** Super admin: upload a resource file (manual) that all restaurant owners can download */
+export function ResourceUpload() {
+  const [title, setTitle] = useState("");
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+      <input className="input" placeholder="Title (e.g. Owner Manual v2)" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <input ref={fileRef} type="file" accept="application/pdf,image/*" className="input !py-2" />
+      <div className="sm:col-span-2">
+        <button className="btn-primary" disabled={pending} onClick={() => {
+          const file = fileRef.current?.files?.[0];
+          if (!file) { setM({ ok: false, t: "Choose a file." }); return; }
+          const fd = new FormData(); fd.set("title", title); fd.set("file", file);
+          start(async () => { const r = await uploadResourceAction(fd); setM(r.ok ? { ok: true, t: r.msg ?? "Uploaded." } : { ok: false, t: r.error }); if (r.ok) { setTitle(""); if (fileRef.current) fileRef.current.value = ""; router.refresh(); } });
+        }}>{pending ? "Uploading…" : "Upload resource"}</button>
+        <Msg m={m} />
+      </div>
+    </div>
+  );
+}
+
+export function DeleteResource({ id }: { id: number }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return <button className="btn-ghost btn-sm" disabled={pending} onClick={() => { if (!confirm("Delete this resource for everyone?")) return; start(async () => { const r = await deleteResourceAction(id); if (!r.ok) alert(r.error); router.refresh(); }); }}>Delete</button>;
+}
+
+export function SupportReply({ id, existing = "" }: { id: number; existing?: string }) {
+  const [reply, setReply] = useState(existing);
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="mt-2">
+      <textarea className="input min-h-20" placeholder="Type your reply to the restaurant…" value={reply} onChange={(e) => setReply(e.target.value)} />
+      <div className="mt-1"><button className="btn-primary btn-sm" disabled={pending} onClick={() => start(async () => { const r = await replySupportAction(id, reply); setM(r.ok ? { ok: true, t: r.msg ?? "Sent." } : { ok: false, t: r.error }); if (r.ok) router.refresh(); })}>{pending ? "Sending…" : existing ? "Update reply" : "Send reply"}</button></div>
+      <Msg m={m} />
+    </div>
   );
 }
 

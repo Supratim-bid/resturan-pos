@@ -314,6 +314,49 @@ export async function deleteTenantAction(id: number, confirmCode: string): Promi
   redirect("/admin");
 }
 
+// ---------- files (shared resources) & support ----------
+const RES_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+const RES_MAX = 15_000_000; // 15 MB for manuals
+
+/** Super admin uploads a resource (manual etc.) that every restaurant owner can download. */
+export async function uploadResourceAction(fd: FormData): Promise<R> {
+  try {
+    await requireAdmin();
+    const title = String(fd.get("title") || "").trim();
+    if (!title) throw new Error("Give the file a title.");
+    const f = fd.get("file");
+    if (!(f instanceof Blob) || f.size === 0) throw new Error("Choose a file.");
+    if (!RES_TYPES.includes(f.type)) throw new Error("Use a PDF, JPG, PNG or WebP file.");
+    if (f.size > RES_MAX) throw new Error("File is too large (max 15 MB).");
+    const buf = Buffer.from(await f.arrayBuffer());
+    const filename = ("name" in f && typeof (f as File).name === "string" ? (f as File).name : title).slice(0, 180);
+    await db.insert(schema.files).values({ tenantId: null, kind: "ADMIN_RESOURCE", title: title.slice(0, 140), filename, mime: f.type, size: f.size, data: buf, byAdmin: true });
+    revalidatePath("/admin/resources");
+    return { ok: true, msg: "Uploaded." };
+  } catch (e) { return err(e); }
+}
+
+export async function deleteResourceAction(id: number): Promise<R> {
+  try {
+    await requireAdmin();
+    await db.delete(schema.files).where(and(eq(schema.files.id, id), sql`${schema.files.tenantId} is null`));
+    revalidatePath("/admin/resources");
+    return { ok: true };
+  } catch (e) { return err(e); }
+}
+
+/** Super admin replies to a restaurant's support message. */
+export async function replySupportAction(id: number, reply: string): Promise<R> {
+  try {
+    const a = await requireAdmin();
+    const text = reply.trim();
+    if (text.length < 1) throw new Error("Type a reply.");
+    await db.update(schema.supportMessages).set({ reply: text.slice(0, 4000), repliedByEmail: a.email, repliedAt: new Date() }).where(eq(schema.supportMessages.id, id));
+    revalidatePath("/admin/support");
+    return { ok: true, msg: "Reply sent." };
+  } catch (e) { return err(e); }
+}
+
 // ---------- super admins ----------
 export async function addSuperAdminAction(emailRaw: string, name: string): Promise<R> {
   try {

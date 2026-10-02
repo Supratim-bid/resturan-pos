@@ -27,6 +27,7 @@ export const MODULES = {
   settlements:{ label: "Swiggy/Zomato Payouts", href: "/settlements" },
   reports:    { label: "Reports & P&L",      href: "/reports" },
   reminders:  { label: "Reminders",          href: "/reminders" },
+  help:       { label: "Help & Documents",   href: "/help" },
   settings:   { label: "Settings & Users",   href: "/settings" },
 } as const;
 export type ModuleKey = keyof typeof MODULES;
@@ -46,8 +47,8 @@ export const ALL_PERMS = [...Object.keys(MODULES), ...Object.keys(POWERS)] as Pe
 export const ROLE_DEFAULTS: Record<Role, PermKey[]> = {
   OWNER: ALL_PERMS,
   MANAGER: ALL_PERMS.filter((k) => k !== "reports" && k !== "settings" && k !== "approveCancel" && k !== "money"),
-  CASHIER: ["newOrder", "orders", "preorders", "onlineOrders", "customers", "dailyMenu", "expenses", "cash", "delivery"],
-  KITCHEN: ["kot", "preorders", "dailyMenu", "recipes", "stock", "wastage"],
+  CASHIER: ["newOrder", "orders", "preorders", "onlineOrders", "customers", "dailyMenu", "expenses", "cash", "delivery", "help"],
+  KITCHEN: ["kot", "preorders", "dailyMenu", "recipes", "stock", "wastage", "help"],
 };
 
 export type Perms = { role: Role; perms: PermKey[]; features?: string[] };

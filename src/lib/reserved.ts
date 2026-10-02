@@ -3,7 +3,7 @@
 export const RESERVED_PATHS = [
   "login", "admin", "api", "online-orders", "bill", "img", "logo", "no-access", "more", "orders", "preorders", "customers", "daily-menu", "menu", "recipes",
   "ingredients", "packaging", "stock", "wastage", "expenses", "reimbursements", "vendors", "staff", "cash", "settlements", "reports", "reminders", "settings", "kot", "delivery", "money", "info", "install", "pwa", "sw.js", "offline.html",
-  "icon", "apple-icon", "manifest.webmanifest", "favicon.ico", "platform-logo.svg", "_next", "static", "public", "app", "www", "help", "support", "b",
+  "icon", "apple-icon", "manifest.webmanifest", "favicon.ico", "platform-logo.svg", "_next", "static", "public", "app", "www", "help", "support", "b", "file",
 ];
 export const isRestaurantPath = (seg: string) => /^[a-z0-9][a-z0-9-]{1,30}$/.test(seg) && !RESERVED_PATHS.includes(seg);
 
