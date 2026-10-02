@@ -16,7 +16,11 @@ const client = globalForDb.pg ?? postgres(url, {
   prepare: false, max: 3, fetch_types: false, connect_timeout: 10, idle_timeout: 20, max_lifetime: 60 * 10,
   ...(pooled ? {} : { connection: { TimeZone: "UTC" } }),
 });
-if (process.env.NODE_ENV !== "production") globalForDb.pg = client;
+// Cache the pool on globalThis in EVERY environment (not just dev). On Vercel the server
+// components, server actions and route handlers are separate bundles that each import this
+// module - without this each one opens its own pool, multiplying connections until Supabase
+// refuses new ones and queries hang for connect_timeout -> 504 "gateway timeout" after a change.
+globalForDb.pg = client;
 
 export const db = drizzle(client, { schema });
 export type DB = typeof db;

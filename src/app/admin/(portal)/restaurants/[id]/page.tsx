@@ -12,23 +12,31 @@ import { listPlans } from "@/lib/plans";
 export default async function TenantPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
   const id = Number((await params).id);
-  const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, id) });
+  // Each query has its own time limit: if the database is slow after a change, the page shows a
+  // note for that part instead of hanging the whole request until Vercel returns a 504.
+  const problems: string[] = [];
+  const step = async <T,>(name: string, q: () => Promise<T>, empty: T): Promise<T> => {
+    try { return await Promise.race([q(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("took longer than 8 seconds")), 8000))]); }
+    catch (e) { console.error(`[admin tenant] ${name} failed:`, e); problems.push(`${name}: ${String((e as Error)?.message || e).slice(0, 160)}`); return empty; }
+  };
+  const t = await step("restaurant", () => db.query.tenants.findFirst({ where: eq(schema.tenants.id, id) }), undefined);
   if (!t) notFound();
-  const [users, [stats], [menu], s, plans, visits] = await Promise.all([
-    db.query.users.findMany({ where: eq(schema.users.tenantId, id), orderBy: [asc(schema.users.role), asc(schema.users.name)] }),
-    db.select({ n: sql<number>`count(*)`, sum: sql<number>`coalesce(sum(${schema.orders.total}),0)`, last: sql<string>`max(${schema.orders.date})` }).from(schema.orders).where(eq(schema.orders.tenantId, id)),
-    db.select({ n: sql<number>`count(*)` }).from(schema.menuItems).where(eq(schema.menuItems.tenantId, id)),
-    db.query.settings.findFirst({ where: eq(schema.settings.tenantId, id) }),
-    listPlans(),
-    db.query.adminImpersonations.findMany({ where: eq(schema.adminImpersonations.tenantId, id), orderBy: [desc(schema.adminImpersonations.id)], limit: 20 }),
+  const [users, [stats], [menu], s, plans, visits, docs] = await Promise.all([
+    step("logins", () => db.query.users.findMany({ where: eq(schema.users.tenantId, id), orderBy: [asc(schema.users.role), asc(schema.users.name)] }), [] as (typeof schema.users.$inferSelect)[]),
+    step("order totals", () => db.select({ n: sql<number>`count(*)`, sum: sql<number>`coalesce(sum(${schema.orders.total}),0)`, last: sql<string>`max(${schema.orders.date})` }).from(schema.orders).where(eq(schema.orders.tenantId, id)), [{ n: 0, sum: 0, last: "" as string }]),
+    step("menu count", () => db.select({ n: sql<number>`count(*)` }).from(schema.menuItems).where(eq(schema.menuItems.tenantId, id)), [{ n: 0 }]),
+    step("settings", () => db.query.settings.findFirst({ where: eq(schema.settings.tenantId, id) }), undefined),
+    step("plans", () => listPlans(), [] as Awaited<ReturnType<typeof listPlans>>),
+    step("support log", () => db.query.adminImpersonations.findMany({ where: eq(schema.adminImpersonations.tenantId, id), orderBy: [desc(schema.adminImpersonations.id)], limit: 20 }), [] as (typeof schema.adminImpersonations.$inferSelect)[]),
+    step("documents", () => db.query.files.findMany({ where: eq(schema.files.tenantId, id), columns: { id: true, kind: true, title: true, filename: true, size: true, docNumber: true, expiry: true }, orderBy: [desc(schema.files.id)] }), [] as { id: number; kind: string; title: string; filename: string; size: number; docNumber: string; expiry: string | null }[]),
   ]);
-  const docs = await db.query.files.findMany({ where: eq(schema.files.tenantId, id), columns: { id: true, kind: true, title: true, filename: true, size: true, docNumber: true, expiry: true }, orderBy: [desc(schema.files.id)] });
   const plan = plans.find((p) => p.key === t.plan);
   const expired = !!t.validTill && t.validTill < todayIST();
   const live = t.active && !expired;
   return (
     <div className="space-y-4">
       <Link href="/admin" className="text-sm text-brand">← All restaurants</Link>
+      {problems.length > 0 && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800"><b>Some information was slow to load and is shown as empty:</b><ul className="mt-1 list-disc pl-5">{problems.map((p) => <li key={p}>{p}</li>)}</ul><p className="mt-1 text-xs">Your change was saved. Reload the page to see the latest numbers.</p></div>}
       <PageHeader title={t.name} subtitle={<>Login code <b className="font-mono">{t.code}</b> · staff login link: <a className="font-mono underline" href={`/${t.code}`} target="_blank">/{t.code}</a></>}
         actions={<div className="flex flex-wrap items-center gap-2">{live ? <Badge tone="green">Enabled</Badge> : <Badge tone="red">{expired ? "Expired" : "Disabled"}</Badge>}<ReplicateButton srcId={id} srcName={t.name} srcCode={t.code} />{live && <OpenAsOwner tenantId={id} name={t.name} />}</div>} />
       <Card title="Subscription & access"><SubscriptionCard id={id} active={t.active} validTill={t.validTill ?? ""} expired={expired} /></Card>
