@@ -46,6 +46,18 @@ export async function verifyBill(token?: string): Promise<{ tid: number; oid: nu
   } catch { return null; }
 }
 
+// Shareable "pin your delivery location" link for ANY order (online or made by staff): /loc/<token>
+export async function signLoc(tid: number, oid: number) {
+  return new SignJWT({ tid, oid, typ: "loc" }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("30d").sign(key());
+}
+export async function verifyLoc(token?: string): Promise<{ tid: number; oid: number } | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, key());
+    return payload.typ === "loc" && typeof payload.tid === "number" && typeof payload.oid === "number" ? { tid: payload.tid, oid: payload.oid } : null;
+  } catch { return null; }
+}
+
 // customer's verified mobile (after SMS OTP) for online orders - per restaurant
 export const PHONE_COOKIE = "ao_phone";
 export async function signPhone(tid: number, phone: string) {

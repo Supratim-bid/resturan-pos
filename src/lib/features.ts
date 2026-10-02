@@ -22,6 +22,7 @@ export const FEATURES = {
   onlineOrders: { label: "Online ordering", group: "online", help: "Customers order from their phone at /<code>/order (delivery, pickup, pre-order); staff accept or reject." },
   paymentGateways: { label: "Payment links & gateways", group: "online", help: "Razorpay, Instamojo or Cashfree payment links on bills - marked paid automatically." },
   aggregators: { label: "Swiggy / Zomato orders", group: "online", help: "Receive Swiggy and Zomato orders here (through an integration partner).", comingSoon: true },
+  deliveryLocation: { label: "Delivery location pin", group: "delivery", help: "Send any customer a link (WhatsApp) to pin their exact delivery spot on a map, for any order and delivery mode." },
   deliveryPartners: { label: "Delivery partners", group: "delivery", help: "Book riders (Porter, Rapido, Borzo…) from an order and track them.", comingSoon: true },
   recipes: { label: "Recipes & costing", group: "kitchen", help: "Recipes, ingredient rates and cost / margin per plate." },
   stock: { label: "Stock & wastage", group: "kitchen", help: "Ingredient stock used by recipes, purchases, counts and wastage." },
@@ -52,7 +53,7 @@ export const DEFAULT_PLANS = [
   { key: "growth", name: "Growth", price: 999, maxUsers: 5, sortOrder: 2, description: "Adds online ordering, KOT, recipes & stock, staff and reports",
     features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports"] },
   { key: "pro", name: "Pro", price: 1999, maxUsers: 15, sortOrder: 3, description: "Everything: Cash & Bank, payment gateways, Swiggy/Zomato payouts",
-    features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports", "money", "settlements", "paymentGateways", "aggregators", "deliveryPartners"] },
+    features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports", "money", "settlements", "paymentGateways", "aggregators", "deliveryLocation", "deliveryPartners"] },
 ] as const;
 
 /** What a restaurant is allowed to use: its plan + add-ons − removed (coming-soon features never count) */

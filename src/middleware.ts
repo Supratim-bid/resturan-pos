@@ -13,6 +13,7 @@ export async function middleware(req: NextRequest) {
   }
   if (path === "/install") return NextResponse.next(); // how to install the staff app (before login too)
   if (path.startsWith("/b/")) return NextResponse.next(); // shared bill link (its own signed token, no login)
+  if (path.startsWith("/loc/")) return NextResponse.next(); // "pin your delivery location" link (its own signed token, no login)
   if (path.startsWith("/file/")) return NextResponse.next(); // file downloads authorize inside the route (session OR admin cookie)
   // restaurant login link: /<restaurant-code>
   const seg = path.split("/").filter(Boolean);

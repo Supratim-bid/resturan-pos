@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { activeGateway, GATEWAY_LABEL, type Gateway } from "@/lib/gateway";
-import { signBill } from "@/lib/session";
+import { signBill, signLoc } from "@/lib/session";
 import { notFound } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -43,6 +43,13 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
     `\n\nView & download: ${shareUrl}` +
     (st.due > 0 && setting?.upiId ? `\nPay by UPI: ${setting.upiId}` : "") + `\n\nThank you!`;
   const waSend = `https://wa.me/${phone.length === 10 ? "91" + phone : phone}?text=${encodeURIComponent(msgLink)}`;
+  // "Pin your delivery location" link - works for ANY order (not just online), any delivery mode
+  const locToken = await signLoc(u.tenantId, o.id);
+  const locUrl = `${origin}/loc/${locToken}`;
+  const hasPin = !!o.destLat && !!o.destLng;
+  const mapsUrl = hasPin ? `https://www.google.com/maps?q=${o.destLat},${o.destLng}` : "";
+  const locMsg = `Namaste 🙏 Please share your delivery location for ${setting?.billName || setting?.name || "your order"}${code ? ` (bill ${code})` : ""} so we can reach you quickly:\n${locUrl}\n\nOpen the link, tap “Use my current location”, then “Confirm”. Thank you!`;
+  const waLoc = `https://wa.me/${phone.length === 10 ? "91" + phone : phone}?text=${encodeURIComponent(locMsg)}`;
   const margin = Number(o.taxable) - Number(o.foodCost);
 
   return (
@@ -66,6 +73,19 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
         <CopyLinkBtn url={shareUrl} />
         <SharePdfButton orderId={o.id} billNo={o.billNo} phone={o.customer?.phone ?? ""} message={msgLink} className="btn-ghost btn-sm" label="📄 Send as PDF" />
       </div>
+      {u.features.includes("deliveryLocation") && (
+      <div className="no-print mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-cream px-3 py-2 text-sm">
+        <span className="font-semibold">📍 Delivery location:</span>
+        {hasPin
+          ? <a href={mapsUrl} target="_blank" rel="noreferrer" className="font-semibold text-emerald-700 underline">✓ Pinned — open in Maps</a>
+          : <span className="text-muted">not shared yet</span>}
+        {phone.length === 10
+          ? <a href={waLoc} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">{hasPin ? "Ask again" : "Ask on WhatsApp"}</a>
+          : <Link href={`/customers${o.customer ? `/${o.customer.id}` : ""}`} className="btn-ghost btn-sm" title="Add the customer's mobile to send the link">Ask (add phone)</Link>}
+        <CopyLinkBtn url={locUrl} />
+        <a href={locUrl} target="_blank" rel="noreferrer" className="btn-ghost btn-sm" title="Open the location page yourself (e.g. pin it while the customer is on call)">Pin it here</a>
+      </div>
+      )}
       <div className="mb-3 flex flex-wrap gap-2">
         <Badge tone={st.tone}>{st.label}</Badge>
         {o.status === "CANCELLED" && <Badge tone="gray">Cancelled</Badge>}
