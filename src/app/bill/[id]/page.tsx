@@ -29,13 +29,13 @@ export default async function Bill({ params, searchParams }: { params: Promise<{
   );
   return (
     <div className="min-h-dvh bg-stone-100 py-4 print:bg-white print:py-0">
-      <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor) + (half ? "@page{size:A4 portrait;margin:0}" : thermal ? `@page{size:${size}mm auto;margin:0}` : "") }} />
+      <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor, s.tone3, s.tone4) + (half ? "@page{size:A4 portrait;margin:0}" : thermal ? `@page{size:${size}mm auto;margin:0}` : "") }} />
       <PrintBar id={o.id} size={size} explicit={!!q} hasKot={!!o.kotNo && u.features.includes("kotPrint")} withKot={withKot} kotExplicit={sp.kot !== undefined} billNo={o.billNo} defaultWidth={s.receiptWidth === "80" ? "80" : "58"}
-        phone={o.customer?.phone ?? ""} message={`*${s.name}* - Bill ${o.billNo}\nTotal: ₹${Number(o.total)}${due > 0 ? `\nDue: ₹${due}` : "\nPaid - thank you!"}\nYour bill is attached (PDF).`} />
+        phone={o.customer?.phone ?? ""} message={`*${s.billName || s.name}* - Bill ${o.billNo}\nTotal: ₹${Number(o.total)}${due > 0 ? `\nDue: ₹${due}` : "\nPaid - thank you!"}\nYour bill is attached (PDF).`} />
       <div className={`mx-auto bg-white text-black shadow print:shadow-none ${width}`}>
         <div className="text-center">
           {s.billShowLogo && <img src="/logo" alt={s.name} className={`mx-auto mb-1 rounded-full object-cover ${thermal ? "h-16 w-16 grayscale" : "h-28 w-28"}`} />}
-          <div className={`font-bold uppercase tracking-wide ${thermal ? "text-[1.3em] text-black" : "text-xl text-brand"}`} style={{ fontFamily: "Georgia, serif" }}>{s.name}</div>
+          <div className={`font-bold uppercase tracking-wide ${thermal ? "text-[1.3em] text-black" : "text-xl text-brand"}`} style={{ fontFamily: "Georgia, serif" }}>{s.billName || s.name}</div>
           {s.tagline && <div className="italic">{s.tagline}</div>}
           {s.billHeaderNote && <div className={thermal ? "font-semibold" : "mx-auto mt-0.5 inline-block rounded-full bg-gold-light px-3 py-0.5 text-[0.9em] font-semibold text-brand print:bg-white"}>{s.billHeaderNote}</div>}
           {s.address && <div>{s.address}</div>}

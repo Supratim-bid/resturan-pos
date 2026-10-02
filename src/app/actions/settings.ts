@@ -24,21 +24,60 @@ export async function saveSettingsAction(v: Record<string, string>): Promise<R> 
     if (digits < 1 || digits > 8) throw new Error("Bill number digits must be 1-8.");
     const start = Math.round(n("billStart", 1));
     if (start < 1) throw new Error("Bill numbers must start at 1 or more.");
-    const primary = (v.primaryColor || "#9a1c1f").trim(), accent = (v.accentColor || "#c8962e").trim();
-    if (!HEX.test(primary) || !HEX.test(accent)) throw new Error("Colours must look like #9a1c1f");
     await db.update(schema.settings).set({
       name: v.name?.trim() || "My Restaurant", tagline: v.tagline ?? "", address: v.address ?? "", phone: (v.phone ?? "").trim().slice(0, 30), email: v.email ?? "",
       extraPhones: (v.extraPhones ?? "").split(/[\n,;]+/).map((x) => x.trim().slice(0, 30)).filter(Boolean).slice(0, 5).join("\n"),
       whatsapp: (v.whatsapp ?? "").trim().slice(0, 30),
       gstin: (v.gstin ?? "").toUpperCase(), fssai: v.fssai ?? "", upiId: v.upiId ?? "", billFooter: v.billFooter ?? "",
+      billName: (v.billName ?? "").trim().slice(0, 80),
+      autoPayLater: (v.autoPayLater ?? "true") === "true",
+      dayEndEmails: (v.dayEndEmails ?? "").split(/[\n,;]+/).map((x) => x.trim().slice(0, 120)).filter((x) => /.+@.+\..+/.test(x)).slice(0, 6).join("\n"),
+      smsSenderId: (v.smsSenderId ?? "").trim().toUpperCase().slice(0, 6),
+      smsOrderUpdates: v.smsOrderUpdates === "true",
       gstRate: n("gstRate"), priceMultiplier: n("priceMultiplier", 3) || 3, platformCommission: n("platformCommission"),
       defaultDeliveryCharge: n("defaultDeliveryCharge"), defaultPackingCharge: n("defaultPackingCharge"),
       billPrefix: prefix, billDigits: digits, billStart: start, billUseFy: v.billUseFy === "true", reuseCancelledNo: (v.reuseCancelledNo ?? "true") === "true", scannerEnabled: v.scannerEnabled === "true",
-      primaryColor: primary, accentColor: accent, receiptWidth: v.receiptWidth === "80" ? "80" : "58",
+      receiptWidth: v.receiptWidth === "80" ? "80" : "58",
       billShowLogo: (v.billShowLogo ?? "true") === "true", billShowCashier: v.billShowCashier === "true",
       billHeaderNote: (v.billHeaderNote ?? "").slice(0, 120), billSocial: (v.billSocial ?? "").slice(0, 120), billTerms: (v.billTerms ?? "").slice(0, 400),
       billShowQr: ["due", "always", "never"].includes(v.billShowQr) ? v.billShowQr : "due", billQrLabel: (v.billQrLabel ?? "").slice(0, 80),
     }).where(eq(schema.settings.tenantId, u.tenantId));
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Save the brand palette (up to 4 tones). Remembers the previous palette so "Revert" can restore it. */
+export async function saveThemeAction(t: { primaryColor: string; accentColor: string; tone3?: string; tone4?: string }): Promise<R> {
+  try {
+    const u = await requireAction("settings");
+    const clean = (c: string | undefined, req: boolean) => {
+      const x = (c ?? "").trim();
+      if (!x) { if (req) throw new Error("Colours must look like #9a1c1f"); return ""; }
+      if (!HEX.test(x)) throw new Error("Colours must look like #9a1c1f");
+      return x;
+    };
+    const primary = clean(t.primaryColor, true) || "#9a1c1f";
+    const accent = clean(t.accentColor, true) || "#c8962e";
+    const tone3 = clean(t.tone3, false), tone4 = clean(t.tone4, false);
+    const cur = await db.query.settings.findFirst({ where: eq(schema.settings.tenantId, u.tenantId), columns: { primaryColor: true, accentColor: true, tone3: true, tone4: true } });
+    const prev = [cur?.primaryColor ?? "", cur?.accentColor ?? "", cur?.tone3 ?? "", cur?.tone4 ?? ""].join("|");
+    await db.update(schema.settings).set({ primaryColor: primary, accentColor: accent, tone3, tone4, themePrev: prev }).where(eq(schema.settings.tenantId, u.tenantId));
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
+/** Restore the palette that was in use before the last save. */
+export async function revertThemeAction(): Promise<R> {
+  try {
+    const u = await requireAction("settings");
+    const cur = await db.query.settings.findFirst({ where: eq(schema.settings.tenantId, u.tenantId), columns: { primaryColor: true, accentColor: true, tone3: true, tone4: true, themePrev: true } });
+    if (!cur?.themePrev) throw new Error("No previous theme to go back to yet.");
+    const [p, a, t3, t4] = cur.themePrev.split("|");
+    if (!HEX.test(p || "") || !HEX.test(a || "")) throw new Error("The saved previous theme is not usable.");
+    const nowPrev = [cur.primaryColor, cur.accentColor, cur.tone3, cur.tone4].join("|");
+    await db.update(schema.settings).set({ primaryColor: p, accentColor: a, tone3: t3 || "", tone4: t4 || "", themePrev: nowPrev }).where(eq(schema.settings.tenantId, u.tenantId));
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (e) { return fail(e); }

@@ -20,6 +20,8 @@ export type FieldDef = {
   defaultToday?: boolean;
   step?: string;
   half?: boolean; // half width on desktop
+  /** show only the options whose `group` matches, based on another field's current value (e.g. paidByName depends on paidFrom) */
+  dependsOn?: { field: string; groups: Record<string, string>; labels?: Record<string, string> };
 };
 
 export type EntityKey =
@@ -146,7 +148,8 @@ export const ENTITIES: Record<EntityKey, { perm: ModuleKey; label: string; field
       { name: "amount", label: "Amount (₹)", type: "money", required: true, half: true },
       { name: "paymentMode", label: "How paid", type: "select", required: true, source: { lookup: "PAYMENT_MODE" }, half: true, help: "'Credit' = not paid yet (vendor due)" },
       { name: "paidFrom", label: "Whose money", type: "select", required: true, source: { values: ["Company", "Owner", "Staff"] }, half: true, help: "Owner / Staff = paid from their own pocket (to be reimbursed)" },
-      { name: "paidByName", label: "Owner / staff name", type: "select", source: { people: true }, half: true, help: "Who paid, if not from company money - so you know whom to repay (add people in Staff & Attendance)" },
+      { name: "paidByName", label: "Owner / staff name", type: "select", source: { people: true }, half: true, help: "Who paid - so you know whom to repay (add people in Staff & Attendance)",
+        dependsOn: { field: "paidFrom", groups: { Company: "Company", Owner: "Owners", Staff: "Staff" }, labels: { Company: "Company name", Owner: "Owner name", Staff: "Staff name" } } },
       { name: "ingredientId", label: "Stock item (optional)", type: "select", source: { entity: "ingredients" }, numericValue: true, half: true, help: "Adds to stock" },
       { name: "qty", label: "Qty (in item's unit)", type: "number", half: true },
       { name: "vendorId", label: "Vendor", type: "select", source: { entity: "vendors" }, numericValue: true, half: true },

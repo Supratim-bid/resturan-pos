@@ -65,11 +65,11 @@ export async function renderBillPdf(tenantId: number, orderId: number) {
   );
 
   const doc = (
-    <Document title={`${s.name} - Bill ${o.billNo}`} author={s.name} creator="Restaurant Manager">
+    <Document title={`${s.billName || s.name} - Bill ${o.billNo}`} author={s.billName || s.name} creator="Restaurant Manager">
       <Page size="A4" style={st.page}>
         <View style={st.center}>
           {logo ? <Image src={logo} style={{ width: 80, height: 80, borderRadius: 40, objectFit: "cover" }} /> : null}
-          <Text style={st.name}>{s.name}</Text>
+          <Text style={st.name}>{s.billName || s.name}</Text>
           {s.tagline ? <Text style={st.italic}>{s.tagline}</Text> : null}
           {s.billHeaderNote ? <Text style={st.pill}>{s.billHeaderNote}</Text> : null}
           {s.address ? <Text>{s.address}</Text> : null}
@@ -145,5 +145,5 @@ export async function renderBillPdf(tenantId: number, orderId: number) {
   );
   const buffer = await renderToBuffer(doc);
   const filename = `Bill-${o.billNo.replace(/[^\w-]+/g, "_")}.pdf`;
-  return { buffer, filename, billNo: o.billNo, total: Number(o.total), due, customerPhone: o.customer?.phone ?? "", restaurant: s.name };
+  return { buffer, filename, billNo: o.billNo, total: Number(o.total), due, customerPhone: o.customer?.phone ?? "", restaurant: s.billName || s.name };
 }

@@ -190,6 +190,27 @@
       "when": 1790961860125,
       "tag": "0026_fk_cascade",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790964078945,
+      "tag": "0027_day_end_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790966872775,
+      "tag": "0028_theme_tones",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790967112140,
+      "tag": "0029_settings_lock_sms",
+      "breakpoints": true
     }
   ]
 }

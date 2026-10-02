@@ -39,6 +39,10 @@ export const tenants = pgTable("tenants", {
   featuresRemoved: text("features_removed").array().notNull().default([]), // taken out of this restaurant's plan by the super admin
   maxUsers: integer("max_users"),                                  // login limit for this restaurant (null = the plan's limit)
   validTill: day("valid_till"),                                    // paid/trial end date; past this the account auto-locks (null = no expiry)
+  // Settings-page lock: super admin issues an 8-digit OTP; owner enters it to unlock Settings for a short while.
+  settingsOtpRequired: boolean("settings_otp_required").notNull().default(false), // when on, Settings needs a super-admin OTP
+  settingsOtp: text("settings_otp").notNull().default(""),         // the current unused OTP (blank = none); cleared once used
+  settingsUnlockedUntil: timestamp("settings_unlocked_until"),     // Settings is open until this time (null = locked)
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -169,9 +173,19 @@ export const settings = pgTable("settings", {
   // brand colours (whole app + bills)
   primaryColor: text("primary_color").notNull().default("#9a1c1f"),
   accentColor: text("accent_color").notNull().default("#c8962e"),
+  tone3: text("tone3").notNull().default(""),                  // 3rd brand tone (header/sidebar gradient end); blank = auto from primary
+  tone4: text("tone4").notNull().default(""),                  // 4th tone (deep accents / footer); blank = auto from accent
+  themePrev: text("theme_prev").notNull().default(""),         // last-saved palette as "primary|accent|tone3|tone4" so "revert" can restore it
   receiptWidth: text("receipt_width").notNull().default("58"), // 58 (2 inch) or 80 (3 inch)
   scannerEnabled: boolean("scanner_enabled").notNull().default(false), // Bluetooth / USB barcode scanner on the order screen
   // online ordering by customers (feature "onlineOrders")
+  billName: text("bill_name").notNull().default(""),                        // name shown on the bill (blank = same as restaurant name)
+  autoPayLater: boolean("auto_pay_later").notNull().default(true),          // New order: tick "Pay later" by default
+  closedNow: boolean("closed_now").notNull().default(false),                // the shop is closed for the day (Day End pressed)
+  dayEndEmails: text("day_end_emails").notNull().default(""),               // where the daily sales report is emailed (comma/line separated)
+  dayEndSentFor: text("day_end_sent_for").notNull().default(""),            // date (YYYY-MM-DD) the report was last sent, so it isn't sent twice
+  smsSenderId: text("sms_sender_id").notNull().default(""),                  // 6-char DLT sender/header, shown on SMS to customers
+  smsOrderUpdates: boolean("sms_order_updates").notNull().default(false),    // send order-status SMS to customers (needs a provider set by the platform)
   onlineOpen: boolean("online_open").notNull().default(true),              // taking online orders right now
   onlineClosedMsg: text("online_closed_msg").notNull().default("We are not taking online orders right now. Please try again later."),
   onlineNote: text("online_note").notNull().default(""),                    // shown at the top of the order page

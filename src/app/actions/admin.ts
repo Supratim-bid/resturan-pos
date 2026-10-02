@@ -229,6 +229,37 @@ export async function setTenantValidTillAction(id: number, date: string): Promis
   } catch (e) { return err(e); }
 }
 
+/** Turn the Settings OTP-lock on or off for a restaurant (e.g. leave it off for trials). */
+export async function setSettingsOtpRequiredAction(id: number, required: boolean): Promise<R> {
+  try {
+    await requireAdmin();
+    await db.update(schema.tenants).set(required ? { settingsOtpRequired: true } : { settingsOtpRequired: false, settingsOtp: "", settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
+    revalidatePath(`/admin/restaurants/${id}`);
+    return { ok: true, msg: required ? "Settings now need an access code." : "Settings open without a code." };
+  } catch (e) { return err(e); }
+}
+
+/** Generate a fresh 8-digit, one-time code the owner uses to open Settings. Returns the code to show the admin. */
+export async function genSettingsOtpAction(id: number): Promise<R & { code?: string }> {
+  try {
+    await requireAdmin();
+    const code = String(Math.floor(10000000 + Math.random() * 90000000));
+    await db.update(schema.tenants).set({ settingsOtpRequired: true, settingsOtp: code, settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
+    revalidatePath(`/admin/restaurants/${id}`);
+    return { ok: true, code, msg: "New code generated." };
+  } catch (e) { return err(e); }
+}
+
+/** Close the owner's Settings access immediately (and cancel any unused code). */
+export async function closeSettingsAccessAction(id: number): Promise<R> {
+  try {
+    await requireAdmin();
+    await db.update(schema.tenants).set({ settingsOtp: "", settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
+    revalidatePath(`/admin/restaurants/${id}`);
+    return { ok: true, msg: "Settings access closed." };
+  } catch (e) { return err(e); }
+}
+
 /** Make a full copy of a restaurant (menu, recipes, settings, branding) as a new restaurant, with dummy orders to try it out. */
 export async function replicateTenantAction(srcId: number, v: { name: string; code: string; ownerName: string; ownerUsername: string; ownerPassword: string }): Promise<R & { id?: number; code?: string }> {
   try {

@@ -21,13 +21,13 @@ export default async function SharedBill({ params }: { params: Promise<{ token: 
   const phones = phoneLine(s).join(" · ");
   return (
     <div className="min-h-dvh bg-cream py-5">
-      <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor) }} />
+      <style dangerouslySetInnerHTML={{ __html: themeCss(s.primaryColor, s.accentColor, s.tone3, s.tone4) }} />
       <div className="mx-auto max-w-md space-y-3 px-3">
         <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-line">
           {/* header */}
-          <div className="bg-brand px-5 py-4 text-center text-white">
+          <div className="bg-brand-gradient px-5 py-4 text-center text-white">
             {s.billShowLogo && <img src="/logo" alt="" className="mx-auto mb-2 h-14 w-14 rounded-full bg-white object-cover ring-2 ring-white/60" />}
-            <div className="font-display text-xl font-bold">{s.name}</div>
+            <div className="font-display text-xl font-bold">{s.billName || s.name}</div>
             {s.tagline && <div className="text-xs text-white/80">{s.tagline}</div>}
             {s.address && <div className="mt-1 text-xs text-white/80">{s.address}</div>}
             {phones && <div className="text-xs text-white/80">{phones}</div>}

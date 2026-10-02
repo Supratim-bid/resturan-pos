@@ -7,8 +7,9 @@ import { effectivePerms } from "@/lib/permissions";
 import { Card, PageHeader } from "@/components/ui";
 import { CrudManager } from "@/components/crud";
 import { featureInfo, tenantWithPlan } from "@/lib/plans";
+import { smsReady } from "@/lib/sms";
 import { POLICY_KINDS, POLICY_PAGES, defaultPolicy } from "@/lib/policies";
-import { OwnFeatures, PaymentSettings, PolicyPages, SettingsForm, UsersManager } from "@/components/settings-forms";
+import { OwnFeatures, PaymentSettings, PolicyPages, SettingsForm, SettingsGate, ThemeStudio, UsersManager } from "@/components/settings-forms";
 import { headers } from "next/headers";
 import { LogoSettings, QrSettings } from "@/components/logo-settings";
 
@@ -26,6 +27,16 @@ export default async function Settings() {
     db.query.lookups.findMany({ where: eq(schema.lookups.tenantId, T), orderBy: [asc(schema.lookups.kind), asc(schema.lookups.sortOrder), asc(schema.lookups.value)] }),
     db.query.tenants.findFirst({ where: and(eq(schema.tenants.id, T)) }),
   ]);
+  // Super-admin OTP lock: when required and not currently unlocked, show the code gate instead of settings.
+  const locked = !!tenant?.settingsOtpRequired && !(tenant?.settingsUnlockedUntil && new Date(tenant.settingsUnlockedUntil) > new Date());
+  if (locked) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Settings & Users" />
+        <SettingsGate />
+      </div>
+    );
+  }
   const tp = await tenantWithPlan({ id: T });
   const fi = tp ? featureInfo(tp.t, tp.plan) : null;
   const SECRET = ["razorpayKeySecret", "razorpayWebhookSecret", "instamojoClientSecret", "instamojoSalt", "cashfreeSecret"];
@@ -46,7 +57,8 @@ export default async function Settings() {
       <Card title="Logins & access">
         <UsersManager meId={me.id} features={me.features} users={users.map((u) => ({ id: u.id, name: u.name, username: u.username, phone: u.phone, role: u.role, active: u.active, perms: effectivePerms(u.role, u.permissions) }))} />
       </Card>
-      <Card title="Restaurant, bills & theme"><SettingsForm initial={init} /></Card>
+      <Card title="Restaurant & bills"><SettingsForm initial={init} smsConnected={smsReady()} /></Card>
+      <Card title="Theme & colours"><ThemeStudio initial={{ primaryColor: s?.primaryColor ?? "#9a1c1f", accentColor: s?.accentColor ?? "#c8962e", tone3: s?.tone3 ?? "", tone4: s?.tone4 ?? "" }} hasPrev={!!s?.themePrev} /></Card>
       {s && (me.features.includes("onlineOrders") || me.features.includes("paymentGateways")) && (
         <Card title="Website & policy pages (for payment gateways)">
           <PolicyPages orderUrl={`${origin}/${tenant?.code}/order`} rows={POLICY_KINDS.map((k) => ({

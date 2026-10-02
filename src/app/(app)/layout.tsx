@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { requireUser } from "@/lib/auth";
 import { MODULES, can, ROLE_LABEL, type ModuleKey } from "@/lib/permissions";
 import { themeCss } from "@/lib/theme";
-import { BottomNav, NavProgress, SideNav, type NavItem } from "@/components/nav";
+import { BottomNav, DayEndButton, NavProgress, SideNav, type NavItem } from "@/components/nav";
 import { logout } from "../actions/auth";
 import { exitImpersonationAction } from "../actions/admin";
 import { db, schema } from "@/db";
@@ -37,13 +37,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       )}
     <div className="md:flex">
       <NavProgress />
-      <style dangerouslySetInnerHTML={{ __html: themeCss(setting?.primaryColor, setting?.accentColor) }} />
+      <style dangerouslySetInnerHTML={{ __html: themeCss(setting?.primaryColor, setting?.accentColor, setting?.tone3, setting?.tone4) }} />
       <aside className="no-print sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r border-gold/30 bg-white p-3 md:flex">
         <Link href="/" className="mb-3 flex items-center gap-2 px-2 py-1">
           <img src="/logo" alt="" className="h-12 w-12 rounded-full bg-white object-cover ring-2 ring-gold/60" />
           <div className="min-w-0"><div className="truncate font-display text-lg font-bold leading-tight text-brand">{name}</div><div className="text-[11px] text-muted">{setting?.tagline || "Restaurant Manager"}</div></div>
         </Link>
         <SideNav items={side} />
+        {can(user, "dayEnd") && <div className="mt-3 border-t border-line pt-3"><DayEndButton closed={!!setting?.closedNow} /></div>}
         <div className="mt-auto border-t border-line pt-3 text-xs">
           <div className="flex items-center gap-2 px-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-light font-bold text-ink">{user.name.slice(0, 1).toUpperCase()}</span>

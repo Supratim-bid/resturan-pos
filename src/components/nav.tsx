@@ -1,9 +1,45 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
+import { dayEndCloseAction, openShopAction } from "@/app/actions/dayend";
 
 export type NavItem = { href: string; label: string; icon: string };
+
+/** Red "Day end" (close shop + email report) / green "Open shop" button for the left menu. */
+export function DayEndButton({ closed, compact = false }: { closed: boolean; compact?: boolean }) {
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState("");
+  const router = useRouter();
+  const base = `flex w-full items-center justify-center gap-2 rounded-xl font-bold shadow-sm transition ${compact ? "px-3 py-2 text-sm" : "px-3 py-2.5 text-sm"}`;
+  if (closed) {
+    return (
+      <div>
+        <button type="button" disabled={pending} onClick={() => start(async () => {
+          const openOnline = confirm("Open the shop again.\n\nDo you also want to start taking ONLINE orders now?\n\nOK = open online orders too · Cancel = keep online orders closed");
+          const r = await openShopAction(openOnline); if (r.ok) { setMsg(""); router.refresh(); } else setMsg(r.error);
+        })} className={`${base} bg-emerald-600 text-white hover:bg-emerald-700`}>
+          {pending ? "Opening…" : "🟢 Shop closed — tap to OPEN"}
+        </button>
+        {msg && <p className="mt-1 px-1 text-[11px] text-red-600">{msg}</p>}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <button type="button" disabled={pending} onClick={() => start(async () => {
+        if (!confirm("Day end — close the shop for the day?\n\nThis also closes online orders, and emails today's sales & expense sheet to the owner mail(s).")) return;
+        const r = await dayEndCloseAction();
+        if (!r.ok) { setMsg(r.error); return; }
+        setMsg(r.emailed ? (r.dev ? "Closed. Report email queued (test mode)." : "Closed. Report emailed.") : r.reason === "no-emails" ? "Closed. Add an owner email in Settings to get the report." : "Closed. Report already sent today.");
+        router.refresh();
+      })} className={`${base} bg-red-600 text-white hover:bg-red-700`}>
+        {pending ? "Closing…" : "🔴 Day end — close shop"}
+      </button>
+      {msg && <p className="mt-1 px-1 text-[11px] text-emerald-700">{msg}</p>}
+    </div>
+  );
+}
 
 function active(path: string, href: string) {
   if (href === "/") return path === "/";
@@ -17,7 +53,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
     <nav className="space-y-0.5">
       {items.map((i) => (
         <Link key={i.href} href={i.href}
-          className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${active(p, i.href) ? "bg-brand text-white shadow-[inset_3px_0_0_var(--color-gold)]" : "text-ink hover:bg-gold-light/70"}`}>
+          className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition ${active(p, i.href) ? "bg-brand-gradient text-white shadow-[inset_3px_0_0_var(--color-gold)]" : "text-ink hover:bg-gold-light/70"}`}>
           <span className="w-5 text-center">{i.icon}</span>{i.label}
         </Link>
       ))}

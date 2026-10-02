@@ -38,7 +38,7 @@ export default async function OrderDetail({ params, searchParams }: { params: Pr
   const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? ""}`;
   const billToken = await signBill(u.tenantId, o.id);
   const shareUrl = `${origin}/b/${billToken}`;
-  const msgLink = `Namaste 🙏 Here is your bill from *${setting?.name ?? "us"}*\nBill ${code} · ${fmtDate(o.date)}\n*Total: ₹${Number(o.total)}*` +
+  const msgLink = `Namaste 🙏 Here is your bill from *${setting?.billName || setting?.name || "us"}*\nBill ${code} · ${fmtDate(o.date)}\n*Total: ₹${Number(o.total)}*` +
     (st.due > 0 ? `  (Due ₹${st.due})` : "  (Paid ✓)") +
     `\n\nView & download: ${shareUrl}` +
     (st.due > 0 && setting?.upiId ? `\nPay by UPI: ${setting.upiId}` : "") + `\n\nThank you!`;

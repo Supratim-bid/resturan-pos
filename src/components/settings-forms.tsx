@@ -1,7 +1,8 @@
 "use client";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createUserAction, saveSettingsAction, savePaymentSettingsAction, testGatewayAction, savePoliciesAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
+import { createUserAction, saveSettingsAction, saveThemeAction, revertThemeAction, savePaymentSettingsAction, testGatewayAction, savePoliciesAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
+import { themeCss, tonePalette } from "@/lib/theme";
 import { Modal } from "./crud";
 import { MODULES, POWERS, ROLE_DEFAULTS, ROLE_LABEL, type PermKey, type Role } from "@/lib/permissions";
 import { FEATURE_TABS, FEATURES, type FeatureKey } from "@/lib/features";
@@ -36,7 +37,52 @@ function PhonesInput({ value, onChange }: { value: string; onChange: (v: string)
 }
 function fyOf(d: Date) { const y = d.getFullYear(), m = d.getMonth() + 1, s = m >= 4 ? y : y - 1; return `${String(s).slice(2)}-${String(s + 1).slice(2)}`; }
 
-export function SettingsForm({ initial }: { initial: Record<string, string> }) {
+/** Live thermal-receipt preview that updates as the owner edits the settings */
+function BillPreview({ v, billNo }: { v: Record<string, string>; billNo: string }) {
+  const name = (v.billName?.trim() || v.name?.trim() || "My Restaurant");
+  const sample = [{ n: "Paneer Butter Masala", q: 1, p: 240 }, { n: "Butter Naan", q: 2, p: 40 }];
+  const sub = sample.reduce((a, x) => a + x.q * x.p, 0);
+  const gstRate = Math.max(0, Number(v.gstRate) || 0);
+  const gst = Math.round(sub * gstRate) / 100;
+  const total = Math.round(sub + gst);
+  const wide = v.receiptWidth === "80";
+  return (
+    <div className="mt-3">
+      <div className="mb-1 text-xs text-muted">Live bill preview — updates as you change settings above:</div>
+      <div className="mx-auto rounded-xl border border-line bg-stone-50 p-3" style={{ maxWidth: wide ? 320 : 240 }}>
+        <div className="bg-white px-3 py-3 font-mono text-[11px] leading-snug text-ink shadow-sm">
+          <div className="text-center">
+            {(v.billShowLogo ?? "true") === "true" && <div className="mx-auto mb-1 h-6 w-6 rounded-full" style={{ background: v.accentColor || "#c8962e" }} />}
+            <div className="text-[13px] font-bold" style={{ color: v.primaryColor || "#9a1c1f" }}>{name}</div>
+            {v.billHeaderNote && <div className="text-[10px]">{v.billHeaderNote}</div>}
+            {v.address && <div className="text-[10px]">{v.address}</div>}
+            {v.phone && <div className="text-[10px]">☎ {v.phone}</div>}
+            {v.gstin && <div className="text-[10px]">GSTIN: {v.gstin}</div>}
+          </div>
+          <div className="my-1 border-t border-dashed border-stone-400" />
+          <div className="flex justify-between"><span>Bill: {billNo}</span><span>Dine-in</span></div>
+          <div className="my-1 border-t border-dashed border-stone-400" />
+          {sample.map((x) => (
+            <div key={x.n} className="flex justify-between gap-2"><span className="truncate">{x.q}× {x.n}</span><span>₹{x.q * x.p}</span></div>
+          ))}
+          <div className="my-1 border-t border-dashed border-stone-400" />
+          <div className="flex justify-between"><span>Subtotal</span><span>₹{sub}</span></div>
+          {gstRate > 0 && <div className="flex justify-between"><span>GST {gstRate}%</span><span>₹{gst}</span></div>}
+          <div className="flex justify-between text-[13px] font-bold" style={{ color: v.primaryColor || "#9a1c1f" }}><span>TOTAL</span><span>₹{total}</span></div>
+          {v.billShowCashier === "true" && <div className="mt-1 text-[10px]">Billed by: Ramesh</div>}
+          {(v.billShowQr === "always" || (v.billShowQr || "due") === "due") && (v.upiId || v.payLinkUrl) && (
+            <div className="mt-2 text-center"><div className="mx-auto h-10 w-10 bg-stone-800" /><div className="text-[9px]">{v.billQrLabel || "Scan to pay"}</div></div>
+          )}
+          {v.billSocial && <div className="mt-1 text-center text-[10px]">{v.billSocial}</div>}
+          {v.billTerms && <div className="mt-1 text-center text-[9px] text-stone-500">{v.billTerms}</div>}
+          {v.billFooter && <div className="mt-1 text-center text-[10px] font-semibold">{v.billFooter}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SettingsForm({ initial, smsConnected = false }: { initial: Record<string, string>; smsConnected?: boolean }) {
   const [v, setV] = useState(initial);
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
@@ -46,15 +92,6 @@ export function SettingsForm({ initial }: { initial: Record<string, string> }) {
     const d = Math.max(1, Math.min(8, Number(v.billDigits) || 4)), n = Math.max(1, Number(v.billStart) || 1);
     return `${v.billPrefix ?? ""}${v.billUseFy === "true" ? fyOf(new Date()) + "/" : ""}${String(n).padStart(d, "0")}`;
   }, [v.billPrefix, v.billDigits, v.billStart, v.billUseFy]);
-  const color = (k: "primaryColor" | "accentColor", label: string) => (
-    <div>
-      <label className="label">{label}</label>
-      <div className="flex gap-2">
-        <input type="color" className="h-11 w-14 cursor-pointer rounded-xl border border-line bg-white p-1" value={/^#[0-9a-f]{6}$/i.test(v[k] ?? "") ? v[k] : "#000000"} onChange={(e) => set(k, e.target.value)} />
-        <input className="input" value={v[k] ?? ""} onChange={(e) => set(k, e.target.value)} />
-      </div>
-    </div>
-  );
   return (
     <form onSubmit={(e) => { e.preventDefault(); start(async () => { const r = await saveSettingsAction(v); setMsg(r.ok ? { ok: true, t: "Saved." } : { ok: false, t: r.error }); if (r.ok) router.refresh(); }); }}>
       <h3 className="mb-2 text-sm font-bold">Restaurant & bill details</h3>
@@ -76,6 +113,8 @@ export function SettingsForm({ initial }: { initial: Record<string, string> }) {
 
       <h3 className="mb-2 mt-6 text-sm font-bold">Bill design</h3>
       <div className="grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2"><label className="label">Name shown on the bill</label><input className="input" value={v.billName ?? ""} placeholder={`Same as restaurant name (${v.name || "My Restaurant"})`} onChange={(e) => set("billName", e.target.value)} />
+          <p className="mt-1 text-[11px] text-muted">Leave blank to use the restaurant name. Set a different name here if bills go out under another name (e.g. payments taken on one name, bill printed on another).</p></div>
         <div className="sm:col-span-2"><label className="label">Line under the name</label><input className="input" value={v.billHeaderNote ?? ""} placeholder="e.g. 100% homemade · No MSG · Pure mustard oil" onChange={(e) => set("billHeaderNote", e.target.value)} /></div>
         <div><label className="label">Social / website line</label><input className="input" value={v.billSocial ?? ""} placeholder="e.g. Insta @yourhandle · WhatsApp 98xxxxxx" onChange={(e) => set("billSocial", e.target.value)} /></div>
         <div><label className="label">Payment QR on bill</label>
@@ -88,6 +127,8 @@ export function SettingsForm({ initial }: { initial: Record<string, string> }) {
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={v.billShowCashier === "true"} onChange={(e) => set("billShowCashier", String(e.target.checked))} /> Print “Billed by” (who made the bill)</label>
       </div>
 
+      <BillPreview v={v} billNo={preview} />
+
       <h3 className="mb-2 mt-6 text-sm font-bold">Bill / order number format</h3>
       <div className="grid gap-3 sm:grid-cols-4">
         <div><label className="label">Prefix</label><input className="input" value={v.billPrefix ?? ""} placeholder="e.g. AP-" onChange={(e) => set("billPrefix", e.target.value)} /></div>
@@ -99,21 +140,36 @@ export function SettingsForm({ initial }: { initial: Record<string, string> }) {
         <span>Reuse the number of a cancelled bill <span className="block text-xs text-muted">AP-0002 cancelled → becomes AP-0002-CAN and the next new bill gets AP-0002. Untick to never reuse numbers (cancelled bills keep theirs). If you are GST-registered, confirm with your CA which your invoices should follow.</span></span></label>
       <p className="mt-2 rounded-xl bg-gold-light/60 px-3 py-2 text-sm">Next new bill will look like: <b className="font-mono">{preview}</b> <span className="text-xs text-muted">(or the next free number after your existing bills). Old bills keep their numbers.</span></p>
 
-      <h3 className="mb-2 mt-6 text-sm font-bold">Brand colours & receipt</h3>
+      <h3 className="mb-2 mt-6 text-sm font-bold">Receipt</h3>
       <div className="grid gap-3 sm:grid-cols-3">
-        {color("primaryColor", "Main colour (buttons, headings)")}
-        {color("accentColor", "Accent colour (highlights)")}
         <div><label className="label">Default thermal paper</label>
           <select className="input" value={v.receiptWidth ?? "58"} onChange={(e) => set("receiptWidth", e.target.value)}>
             <option value="58">2 inch (58mm)</option><option value="80">3 inch (80mm)</option>
           </select></div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-line p-3">
-        <span className="text-xs text-muted">Preview:</span>
-        <span className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ background: v.primaryColor }}>Save order</span>
-        <span className="rounded-full px-3 py-1.5 text-sm font-semibold" style={{ background: v.accentColor }}>★ Today</span>
-        <span className="font-display text-lg font-bold" style={{ color: v.primaryColor }}>{v.name}</span>
-        <button type="button" className="ml-auto text-xs text-brand underline" onClick={() => { set("primaryColor", "#9a1c1f"); set("accentColor", "#c8962e"); }}>Reset to red &amp; gold</button>
+      <p className="mt-2 text-[11px] text-muted">Brand colours &amp; theme are now in their own “Theme &amp; colours” section below, with a live preview.</p>
+
+      <h3 className="mb-2 mt-6 text-sm font-bold">Order screen</h3>
+      <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--color-brand)]" checked={(v.autoPayLater ?? "true") === "true"} onChange={(e) => set("autoPayLater", String(e.target.checked))} />
+        <span>Tick “Pay later (due)” by default on new orders
+          <span className="block text-xs text-muted">On the New order screen, “Pay later” starts ticked so staff don’t have to collect payment up front. They can still tap “Pay now” for each order. Untick this to ask for payment up front by default.</span></span></label>
+
+      <h3 className="mb-2 mt-6 text-sm font-bold">Day end & daily report</h3>
+      <div>
+        <label className="label">Email the daily sales &amp; expense report to</label>
+        <textarea className="input" rows={2} value={v.dayEndEmails ?? ""} placeholder="owner@example.com, partner@example.com" onChange={(e) => set("dayEndEmails", e.target.value)} />
+        <p className="mt-1 text-[11px] text-muted">One or more emails (comma or new line). When you press the red <b>Day end</b> button — or automatically at 1 AM if you forget — today’s sales and expense Excel sheet is emailed here and the restaurant is closed for the day. Leave blank to not send any email.</p>
+      </div>
+
+      <h3 className="mb-2 mt-6 text-sm font-bold">SMS to customers</h3>
+      <div className={`mb-2 rounded-xl px-3 py-2 text-xs ${smsConnected ? "bg-emerald-50 text-emerald-800" : "bg-stone-100 text-stone-600"}`}>
+        {smsConnected ? "✓ An SMS provider is connected for your app." : "No SMS provider is connected yet. The platform admin sets up the provider & API key (kept on the server). These settings take effect once it is connected."}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div><label className="label">Sender ID (DLT header)</label><input className="input font-mono uppercase" maxLength={6} value={v.smsSenderId ?? ""} placeholder="e.g. ALOPOS" onChange={(e) => set("smsSenderId", e.target.value.toUpperCase().slice(0, 6))} />
+          <p className="mt-1 text-[11px] text-muted">The 6-character approved header shown as the SMS sender.</p></div>
+        <label className="flex items-start gap-2 pt-6 text-sm"><input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--color-brand)]" checked={v.smsOrderUpdates === "true"} onChange={(e) => set("smsOrderUpdates", String(e.target.checked))} />
+          <span>Send order-status updates to customers by SMS<span className="block text-xs text-muted">Order confirmed / out for delivery / delivered. Needs the provider connected above.</span></span></label>
       </div>
 
       <h3 className="mb-2 mt-6 text-sm font-bold">Barcode scanner</h3>
@@ -124,6 +180,161 @@ export function SettingsForm({ initial }: { initial: Record<string, string> }) {
       {msg && <p className={`mt-3 text-sm ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</p>}
       <button className="btn-primary mt-4" disabled={pending}>{pending ? "Saving…" : "Save settings"}</button>
     </form>
+  );
+}
+
+// ---------------- Settings lock (super-admin 8-digit OTP) ----------------
+import { unlockSettingsAction } from "@/app/actions/settings-lock";
+export function SettingsGate() {
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="mx-auto max-w-md">
+      <div className="card text-center">
+        <div className="mb-2 text-4xl">🔒</div>
+        <h3 className="text-lg font-bold">Settings are locked</h3>
+        <p className="mt-1 text-sm text-muted">To open Settings, ask the platform admin (support) for the current <b>8-digit access code</b> and enter it below. Each code works once.</p>
+        <form className="mt-4" onSubmit={(e) => { e.preventDefault(); setErr(""); start(async () => { const r = await unlockSettingsAction(code); if (r.ok) router.refresh(); else setErr(r.error); }); }}>
+          <input className="input text-center font-mono text-2xl tracking-[0.4em]" inputMode="numeric" maxLength={8} autoFocus value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="••••••••" aria-label="8-digit access code" />
+          {err && <p className="mt-2 text-sm text-red-700">{err}</p>}
+          <button className="btn-primary mt-3 w-full" disabled={pending || code.length !== 8}>{pending ? "Checking…" : "Unlock settings"}</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- Theme & colours (multi-tone, live preview, revert) ----------------
+const THEME_PRESETS: { name: string; primary: string; accent: string; tone3: string; tone4: string }[] = [
+  { name: "Sindoor & Gold", primary: "#9a1c1f", accent: "#c8962e", tone3: "#6e1012", tone4: "#9c7219" },
+  { name: "Royal Bengal", primary: "#7b1e3b", accent: "#d4a017", tone3: "#4a1023", tone4: "#a87b10" },
+  { name: "Spice Garden", primary: "#1f6f54", accent: "#e08a1e", tone3: "#124234", tone4: "#b56a12" },
+  { name: "Midnight Blue", primary: "#1e3a5f", accent: "#e0a030", tone3: "#0f2238", tone4: "#b07a18" },
+  { name: "Charcoal & Amber", primary: "#2b2b2b", accent: "#e6a817", tone3: "#141414", tone4: "#b07f10" },
+  { name: "Terracotta", primary: "#b4451f", accent: "#2f8f6b", tone3: "#7f2f12", tone4: "#1f6349" },
+];
+const isHex = (c: string) => /^#[0-9a-f]{6}$/i.test(c);
+
+export function ThemeStudio({ initial, hasPrev }: { initial: { primaryColor: string; accentColor: string; tone3: string; tone4: string }; hasPrev: boolean }) {
+  const [primary, setPrimary] = useState(initial.primaryColor || "#9a1c1f");
+  const [accent, setAccent] = useState(initial.accentColor || "#c8962e");
+  const [tone3, setTone3] = useState(initial.tone3 || "");
+  const [tone4, setTone4] = useState(initial.tone4 || "");
+  const [live, setLive] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const dirty = primary !== (initial.primaryColor || "#9a1c1f") || accent !== (initial.accentColor || "#c8962e") || tone3 !== (initial.tone3 || "") || tone4 !== (initial.tone4 || "");
+  const pal = tonePalette(primary, accent, tone3, tone4);
+  const savedPal = tonePalette(initial.primaryColor, initial.accentColor, initial.tone3, initial.tone4);
+
+  const save = () =>
+    start(async () => {
+      const r = await saveThemeAction({ primaryColor: primary, accentColor: accent, tone3, tone4 });
+      setMsg(r.ok ? { ok: true, t: "Theme saved." } : { ok: false, t: r.error });
+      if (r.ok) { removeLive(); router.refresh(); }
+    });
+
+  // Live preview: inject the theme into the whole page so they can test before saving.
+  const css = useMemo(() => themeCss(primary, accent, tone3, tone4), [primary, accent, tone3, tone4]);
+  function removeLive() { document.getElementById("theme-live")?.remove(); }
+  useEffect(() => {
+    if (!live) { removeLive(); return; }
+    let el = document.getElementById("theme-live") as HTMLStyleElement | null;
+    if (!el) { el = document.createElement("style"); el.id = "theme-live"; document.head.appendChild(el); }
+    el.textContent = css;
+    return () => { /* keep while live stays on */ };
+  }, [css, live]);
+  useEffect(() => () => removeLive(), []);
+
+  // Auto-save 15 minutes after the last change (they can also press Save any time).
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current);
+    if (!dirty) return;
+    timer.current = setTimeout(() => { save(); setMsg({ ok: true, t: "Theme auto-saved (15 min)." }); }, 15 * 60 * 1000);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primary, accent, tone3, tone4]);
+
+  const picker = (label: string, hint: string, value: string, onChange: (v: string) => void, placeholder = "") => (
+    <div>
+      <label className="label">{label}</label>
+      <div className="flex gap-2">
+        <input type="color" aria-label={label} className="h-11 w-14 shrink-0 cursor-pointer rounded-xl border border-line bg-white p-1" value={isHex(value) ? value : (placeholder || "#000000")} onChange={(e) => onChange(e.target.value)} />
+        <input className="input" value={value} placeholder={placeholder ? `auto (${placeholder})` : ""} onChange={(e) => onChange(e.target.value)} />
+      </div>
+      <p className="mt-1 text-[11px] text-muted">{hint}</p>
+    </div>
+  );
+  const swatch = (c: string, label: string) => (
+    <div className="flex flex-col items-center gap-1">
+      <span className="h-9 w-9 rounded-lg border border-black/10" style={{ background: c }} />
+      <span className="text-[10px] text-muted">{label}</span>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {THEME_PRESETS.map((p) => (
+          <button key={p.name} type="button" onClick={() => { setPrimary(p.primary); setAccent(p.accent); setTone3(p.tone3); setTone4(p.tone4); setLive(true); }}
+            className="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-xs font-semibold hover:border-brand">
+            <span className="flex -space-x-1">
+              {[p.primary, p.tone3, p.accent, p.tone4].map((c, i) => <span key={i} className="h-4 w-4 rounded-full border border-white" style={{ background: c }} />)}
+            </span>
+            {p.name}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {picker("Main colour", "Buttons, menu, headings.", primary, setPrimary)}
+        {picker("Accent colour", "Highlights, badges, ‘Today’ chips.", accent, setAccent)}
+        {picker("3rd tone (gradient)", "Deepens the header/menu into a gradient. Leave blank to auto-make from the main colour.", tone3, setTone3, pal.tone3)}
+        {picker("4th tone (deep accent)", "Darker accent for footers / strong highlights. Blank = auto from the accent.", tone4, setTone4, pal.tone4)}
+      </div>
+
+      {/* what changes to what: saved -> new */}
+      <div className="mt-4 rounded-xl border border-line p-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">What changes</div>
+        <div className="flex items-center gap-4">
+          <div className="flex gap-3">{swatch(savedPal.primary, "Main")}{swatch(savedPal.tone3, "3rd")}{swatch(savedPal.accent, "Accent")}{swatch(savedPal.tone4, "4th")}</div>
+          <span className="text-xl text-muted">→</span>
+          <div className="flex gap-3">{swatch(pal.primary, "Main")}{swatch(pal.tone3, "3rd")}{swatch(pal.accent, "Accent")}{swatch(pal.tone4, "4th")}</div>
+        </div>
+      </div>
+
+      {/* live mock-up of the real UI */}
+      <div className="mt-4 overflow-hidden rounded-2xl border border-line">
+        <div className="flex items-center gap-2 px-4 py-3 text-white" style={{ background: `linear-gradient(135deg, ${pal.primary}, ${pal.tone3})` }}>
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-sm">🍽️</span>
+          <span className="font-display text-lg font-bold">Your Restaurant</span>
+          <span className="ml-auto rounded-full px-2.5 py-1 text-xs font-bold text-ink" style={{ background: pal.accent }}>★ Today</span>
+        </div>
+        <div className="space-y-2 bg-white p-4">
+          <div className="flex gap-2">
+            <span className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ background: pal.primary }}>Save order</span>
+            <span className="rounded-xl px-4 py-2 text-sm font-semibold" style={{ background: pal.accent, color: "#341503" }}>UPI</span>
+            <span className="rounded-xl border px-4 py-2 text-sm font-semibold" style={{ borderColor: pal.tone4, color: pal.tone4 }}>Pay later</span>
+          </div>
+          <div className="rounded-xl p-3 text-sm" style={{ background: `${pal.accent}22` }}>Highlighted row / due amount uses the accent tint.</div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={live} onChange={(e) => setLive(e.target.checked)} /> Test on the whole page (live, not saved)</label>
+        <button type="button" className="btn-primary ml-auto" disabled={pending || !dirty} onClick={save}>{pending ? "Saving…" : dirty ? "Save theme" : "Saved"}</button>
+        <button type="button" className="btn-ghost" disabled={pending || !hasPrev} onClick={() => start(async () => { const r = await revertThemeAction(); setMsg(r.ok ? { ok: true, t: "Went back to the previous theme." } : { ok: false, t: r.error }); if (r.ok) { removeLive(); router.refresh(); } })}>↩ Revert to previous theme</button>
+        <button type="button" className="text-xs text-brand underline" onClick={() => { setPrimary("#9a1c1f"); setAccent("#c8962e"); setTone3(""); setTone4(""); setLive(true); }}>Reset to red &amp; gold</button>
+      </div>
+      {dirty && <p className="mt-2 text-[11px] text-muted">Unsaved — turn on “Test” to see it live, press Save, or it auto-saves 15 minutes after your last change.</p>}
+      {msg && <p className={`mt-2 text-sm ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</p>}
+    </div>
   );
 }
 

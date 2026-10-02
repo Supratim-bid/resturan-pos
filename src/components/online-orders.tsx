@@ -39,8 +39,8 @@ export function OpenSwitch({ open }: { open: boolean }) {
   const router = useRouter();
   return (
     <button type="button" disabled={pending} onClick={() => start(async () => { await setOnlineOpenAction(!open); router.refresh(); })}
-      className={`rounded-full px-3 py-1.5 text-sm font-bold ${open ? "bg-emerald-600 text-white" : "bg-stone-300 text-ink"}`}>
-      {open ? "● Taking orders" : "○ Closed - tap to open"}
+      className={`rounded-xl px-5 py-3 text-base font-bold shadow-sm ${open ? "bg-emerald-600 text-white hover:bg-emerald-700" : "border-2 border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50"}`}>
+      {open ? "● Taking online orders" : "○ Online orders closed — tap to open"}
     </button>
   );
 }
@@ -76,8 +76,8 @@ export function OnlineOrderActions({ id, payMethod, canBlock = false, paidOnline
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          <button className="btn-primary" disabled={pending} onClick={() => run(() => acceptOnlineOrderAction(id, paid), (oid) => router.push(`/orders/${oid}?saved=1`))}>{pending ? "Accepting…" : "✓ Accept - make bill"}</button>
-          <button className="btn-ghost" disabled={pending} onClick={() => setMode("reject")}>✕ Reject</button>
+          <button className="btn-primary flex-1 min-w-[160px] !px-6 !py-3.5 text-base font-bold shadow-sm" disabled={pending} onClick={() => run(() => acceptOnlineOrderAction(id, paid), (oid) => router.push(`/orders/${oid}?saved=1`))}>{pending ? "Accepting…" : "✓ Accept — make bill"}</button>
+          <button className="rounded-xl border-2 border-red-500 bg-white px-6 py-3.5 text-base font-bold text-red-600 hover:bg-red-50" disabled={pending} onClick={() => setMode("reject")}>✕ Reject</button>
         </div>
       )}
       {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}

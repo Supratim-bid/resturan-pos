@@ -33,6 +33,8 @@ input, select, textarea { font-size: 16px; } /* stop iOS zoom */
 @utility btn-danger { @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50; }
 @utility btn-sm { @apply px-3 py-1.5 text-xs rounded-lg; }
 @utility card { @apply rounded-2xl border border-line bg-white p-4 shadow-[0_1px_2px_rgba(52,21,3,.05)]; }
+/* multi-tone brand gradient (primary -> 3rd tone) for prominent surfaces */
+.bg-brand-gradient { background: var(--brand-gradient, var(--color-brand)); }
 @layer components {
 .tbl { @apply w-full text-sm; }
 .tbl th { @apply whitespace-nowrap border-b border-line bg-cream px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted; }

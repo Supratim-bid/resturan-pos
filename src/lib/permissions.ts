@@ -37,6 +37,7 @@ export const POWERS = {
   seeCosts: "See costs, margins & profit",
   editPastOrders: "Edit past orders & delete payments",
   approveCancel: "Cancel bills / approve cancellation requests",
+  dayEnd: "Day end: close the shop & send the daily report",
 } as const;
 export type PowerKey = keyof typeof POWERS;
 export type PermKey = ModuleKey | PowerKey;

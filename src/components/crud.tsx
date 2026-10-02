@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { FieldDef, Option, EntityKey } from "@/lib/entities";
@@ -118,6 +118,24 @@ export function RecordForm({
   const [err, setErr] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
+  // Keep dependent "name" fields (e.g. expense paid-by name) valid for the controlling field (paidFrom):
+  // auto-fill the company name when "Company", clear a stale person when switching Owner/Staff.
+  const depKey = fields.map((f) => (f.dependsOn ? String(vals[f.dependsOn.field] ?? "") : "")).join("|");
+  useEffect(() => {
+    for (const f of fields) {
+      if (!f.dependsOn) continue;
+      const ctrl = String(vals[f.dependsOn.field] ?? "");
+      const grp = f.dependsOn.groups[ctrl];
+      const opts = (options[f.name] ?? []).filter((o) => o.group === grp);
+      const cur = String(vals[f.name] ?? "");
+      if (grp === "Company") {
+        if (opts[0] && cur !== String(opts[0].value)) setVals((s) => ({ ...s, [f.name]: opts[0].value }));
+      } else if (cur && !opts.some((o) => String(o.value) === cur)) {
+        setVals((s) => ({ ...s, [f.name]: "" }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depKey]);
   return (
     <form
       onSubmit={(e) => {
@@ -131,14 +149,28 @@ export function RecordForm({
       }}
     >
       <div className="grid grid-cols-2 gap-3">
-        {fields.map((f) => (
+        {fields.map((f) => {
+          let opts = options[f.name];
+          let label = f.label;
+          let readOnly = false;
+          if (f.dependsOn) {
+            const ctrl = String(vals[f.dependsOn.field] ?? "");
+            const grp = f.dependsOn.groups[ctrl];
+            label = f.dependsOn.labels?.[ctrl] ?? f.label;
+            opts = (options[f.name] ?? []).filter((o) => o.group === grp);
+            readOnly = grp === "Company";
+          }
+          return (
           <div key={f.name} className={f.half ? "col-span-2 sm:col-span-1" : "col-span-2"}>
-            {f.type !== "checkbox" && <label className="label">{f.label}{f.required && <span className="text-red-600"> *</span>}</label>}
-            <FieldInput f={f} value={vals[f.name]} options={options[f.name]} onChange={(v) => setVals((s) => ({ ...s, [f.name]: v }))} />
+            {f.type !== "checkbox" && <label className="label">{label}{f.required && <span className="text-red-600"> *</span>}</label>}
+            {readOnly
+              ? <input className="input bg-stone-50 text-muted" readOnly value={String(vals[f.name] ?? "")} />
+              : <FieldInput f={f} value={vals[f.name]} options={opts} onChange={(v) => setVals((s) => ({ ...s, [f.name]: v }))} />}
             {f.help && <p className="mt-1 text-[11px] text-muted">{f.help}</p>}
             {existing && f.name === "phone" && <DuplicateHint vals={vals} existing={existing} id={id} href={existingHref} />}
           </div>
-        ))}
+          );
+        })}
       </div>
       {err && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
       <div className="sticky bottom-0 mt-5 flex gap-2 bg-white pt-2">

@@ -7,6 +7,7 @@ import {
   setTenantPlanAction, savePlanAction, deletePlanAction, openTenantAsOwnerAction, editUserAction, deleteUserAction,
   uploadResourceAction, deleteResourceAction, replySupportAction,
   setTenantValidTillAction, replicateTenantAction,
+  setSettingsOtpRequiredAction, genSettingsOtpAction, closeSettingsAccessAction,
 } from "@/app/actions/admin";
 import { useRef } from "react";
 import { FEATURES, FEATURE_GROUPS, FEATURE_KEYS, type FeatureKey, type FeatureGroup } from "@/lib/features";
@@ -232,6 +233,35 @@ export function SubscriptionCard({ id, active, validTill, expired }: { id: numbe
         {till && <button className="btn-ghost btn-sm" disabled={pending} onClick={() => { setTill(""); start(async () => { await setTenantValidTillAction(id, ""); router.refresh(); }); }}>Clear</button>}
         <p className="w-full text-xs text-muted">Leave blank for no end date. On the day after this date, the restaurant locks on its own (good for trials / unpaid months).</p>
       </div>
+      <Msg m={m} />
+    </div>
+  );
+}
+
+/** Super admin: control whether the owner needs an 8-digit code to open Settings, and issue / close that access. */
+export function SettingsAccessCard({ id, required, hasCode, unlockedUntil }: { id: number; required: boolean; hasCode: boolean; unlockedUntil: string | null }) {
+  const [code, setCode] = useState<string | null>(null);
+  const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const open = unlockedUntil && new Date(unlockedUntil) > new Date();
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={required} disabled={pending}
+          onChange={(e) => start(async () => { const r = await setSettingsOtpRequiredAction(id, e.target.checked); setM(r.ok ? { ok: true, t: r.msg ?? "" } : { ok: false, t: r.error }); setCode(null); router.refresh(); })} />
+        <span><b>Require a code to open Settings</b><span className="block text-xs text-muted">Leave off for trials. When on, the owner must enter an 8-digit code you give them each time they open Settings.</span></span>
+      </label>
+      {required && (
+        <div className="rounded-xl border border-line p-3">
+          <div className="mb-2 text-sm">Status: {open ? <span className="font-semibold text-emerald-700">● Settings open (owner unlocked it)</span> : hasCode ? <span className="font-semibold text-amber-700">● Code issued, waiting for the owner</span> : <span className="font-semibold text-stone-600">● Locked</span>}</div>
+          {code && <div className="mb-2 rounded-lg bg-gold-light/60 px-3 py-2 text-center"><div className="text-xs text-muted">Give this code to the owner (one-time, expires after use):</div><div className="font-mono text-2xl font-bold tracking-widest">{code}</div></div>}
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary btn-sm" disabled={pending} onClick={() => start(async () => { const r = await genSettingsOtpAction(id); if (r.ok && r.code) { setCode(r.code); setM({ ok: true, t: "New code generated — read it out to the owner." }); } else if (!r.ok) setM({ ok: false, t: r.error }); router.refresh(); })}>{hasCode || open ? "New code" : "Generate code"}</button>
+            {(open || hasCode) && <button className="btn-ghost btn-sm" disabled={pending} onClick={() => start(async () => { const r = await closeSettingsAccessAction(id); setCode(null); setM(r.ok ? { ok: true, t: r.msg ?? "" } : { ok: false, t: r.error }); router.refresh(); })}>Close settings access</button>}
+          </div>
+        </div>
+      )}
       <Msg m={m} />
     </div>
   );

@@ -18,6 +18,10 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
   });
   const f = ENTITIES.expenses.fields;
   const opts = await resolveOptions(u.tenantId, f);
+  // "Company" money shows the restaurant name (so the bill/expense names line up). Owner/Staff keep their own name lists.
+  const setting = await db.query.settings.findFirst({ where: eq(schema.settings.tenantId, u.tenantId), columns: { name: true } });
+  const companyName = setting?.name || "Company";
+  opts.paidByName = [{ value: companyName, label: companyName, group: "Company" }, ...(opts.paidByName ?? [])];
   const total = rows.reduce((s, r) => s + Number(r.amount), 0);
   const credit = rows.filter((r) => r.paymentMode === "Credit").reduce((s, r) => s + Number(r.amount), 0);
   const byCat = new Map<string, number>();
@@ -31,7 +35,7 @@ export default async function Expenses({ searchParams }: { searchParams: Promise
     }
   }
   const reimbTotal = [...reimb.values()].reduce((a, b) => a + b, 0);
-  const paidByLabel = (r: typeof rows[number]) => r.paidFrom === "Company" || !r.paidFrom ? "Company" : `${r.paidByName || r.paidFrom} · ${r.paidFrom}`;
+  const paidByLabel = (r: typeof rows[number]) => r.paidFrom === "Company" || !r.paidFrom ? companyName : `${r.paidByName || r.paidFrom} · ${r.paidFrom}`;
   const data = rows.map((r) => ({
     ...r, paidTo: r.vendor?.name ?? r.staff?.name ?? "", stock: r.ingredient ? `${Number(r.qty)} ${r.ingredient.unit} ${r.ingredient.name}` : "",
     paidByWhom: paidByLabel(r),

@@ -143,10 +143,10 @@ function CustomerPicker({ customers, value, onChange, onAdded }: {
 
 export function Pos({
   dishes, customers: initialCustomers, orderTypes, payModes, gstRate, defaults, initial, today, canPickDate, orderLabel, packaging = [], mealSlots = [], allowPreorder = false, scanner = false,
-  kotScreen = false, kotPrint = false, kotNo = null,
+  kotScreen = false, kotPrint = false, kotNo = null, autoPayLater = true,
 }: {
   dishes: PosDish[]; customers: PosCustomer[]; orderTypes: string[]; payModes: string[]; gstRate: number; packaging?: PosPack[]; mealSlots?: string[]; allowPreorder?: boolean; scanner?: boolean;
-  kotScreen?: boolean; kotPrint?: boolean; kotNo?: number | null;
+  kotScreen?: boolean; kotPrint?: boolean; kotNo?: number | null; autoPayLater?: boolean;
   defaults: { deliveryCharge: number; packingCharge: number }; initial: PosInitial; today: string; canPickDate: boolean; orderLabel: string;
 }) {
   const router = useRouter();
@@ -157,7 +157,7 @@ export function Pos({
   const [cartOpen, setCartOpen] = useState(false);
   const [payMode, setPayMode] = useState(initial.id ? "" : "Cash");
   const [payAmt, setPayAmt] = useState<string>("");
-  const [payLater, setPayLater] = useState(false);
+  const [payLater, setPayLater] = useState(autoPayLater);
   const [err, setErr] = useState("");
   const [pending, start] = useTransition();
   // KOT: send the order to the kitchen screen together with the bill (choice remembered on this device)
@@ -449,12 +449,12 @@ export function Pos({
           {isDelivery && !o.customerId && <p className="text-xs text-amber-700">Tip: pick the customer so the bill shows their address and dues are tracked.</p>}
         </div>
 
-        <input className="input mb-2" placeholder="Search dish…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="input mb-2 !py-3 text-base" placeholder="Search dish…" value={search} onChange={(e) => setSearch(e.target.value)} />
         {!search && (
           <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
             {cats.map((c) => (
               <button type="button" key={c} onClick={() => setCat(c)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold ${cat === c ? "bg-gold text-ink" : "bg-white text-ink ring-1 ring-line"}`}>{c}</button>
+                className={`shrink-0 rounded-full px-4 py-2 text-base font-semibold ${cat === c ? "bg-gold text-ink" : "bg-white text-ink ring-1 ring-line"}`}>{c}</button>
             ))}
           </div>
         )}
@@ -472,10 +472,10 @@ export function Pos({
                 <span className={`absolute right-2 ${anyPhoto ? "top-2 bg-white" : "top-3"} h-3 w-3 rounded-sm border-2 ${d.vegType === "Veg" ? "border-emerald-600" : "border-red-600"}`}>
                   <span className={`m-auto mt-[1px] block h-1.5 w-1.5 rounded-full ${d.vegType === "Veg" ? "bg-emerald-600" : "bg-red-600"}`} />
                 </span>
-                <div className="pr-4 text-sm font-semibold leading-tight">{d.name}</div>
+                <div className="pr-4 text-base font-semibold leading-tight">{d.name}</div>
                 <div className="mt-1 flex items-center justify-between">
-                  <span className="text-sm text-muted">{inr(d.price)}</span>
-                  {q > 0 && <span className="rounded-full bg-brand px-2 text-xs font-bold text-white">{q}</span>}
+                  <span className="text-base font-medium text-ink">{inr(d.price)}</span>
+                  {q > 0 && <span className="rounded-full bg-brand px-2.5 py-0.5 text-sm font-bold text-white">{q}</span>}
                 </div>
                 </div>
               </button>

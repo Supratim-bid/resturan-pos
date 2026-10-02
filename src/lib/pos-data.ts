@@ -24,6 +24,7 @@ export async function loadPosData(tenantId: number, date: string) {
   return {
     dishes, customers, orderTypes, payModes: payModes.filter((m) => m !== "Credit"),
     gstRate: Number(setting?.gstRate ?? 0),
+    autoPayLater: setting?.autoPayLater ?? true,
     defaults: { deliveryCharge: Number(setting?.defaultDeliveryCharge ?? 0), packingCharge: Number(setting?.defaultPackingCharge ?? 0) },
     nextBill: next,
     mealSlots: slots.length ? slots : ["Breakfast", "Lunch", "Evening Snacks", "Dinner"],
