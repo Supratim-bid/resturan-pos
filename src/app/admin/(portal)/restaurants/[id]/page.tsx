@@ -40,7 +40,7 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
       <PageHeader title={t.name} subtitle={<>Login code <b className="font-mono">{t.code}</b> · staff login link: <a className="font-mono underline" href={`/${t.code}`} target="_blank">/{t.code}</a></>}
         actions={<div className="flex flex-wrap items-center gap-2">{live ? <Badge tone="green">Enabled</Badge> : <Badge tone="red">{expired ? "Expired" : "Disabled"}</Badge>}<ReplicateButton srcId={id} srcName={t.name} srcCode={t.code} />{live && <OpenAsOwner tenantId={id} name={t.name} />}</div>} />
       <Card title="Subscription & access"><SubscriptionCard id={id} active={t.active} validTill={t.validTill ?? ""} expired={expired} /></Card>
-      <Card title="Settings access (owner)"><SettingsAccessCard id={id} required={!!t.settingsOtpRequired} hasCode={!!t.settingsOtp} unlockedUntil={t.settingsUnlockedUntil ? t.settingsUnlockedUntil.toISOString() : null} /></Card>
+      <Card title="Settings access (owner)"><SettingsAccessCard id={id} required={!!t.settingsOtpRequired} code={t.settingsOtp ?? ""} unlockedUntil={t.settingsUnlockedUntil ? t.settingsUnlockedUntil.toISOString() : null} /></Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Orders (all time)" value={Number(stats.n)} />
         <Stat label="Billed (all time)" value={inr(Number(stats.sum))} />

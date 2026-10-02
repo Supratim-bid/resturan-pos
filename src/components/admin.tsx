@@ -238,9 +238,10 @@ export function SubscriptionCard({ id, active, validTill, expired }: { id: numbe
   );
 }
 
-/** Super admin: control whether the owner needs an 8-digit code to open Settings, and issue / close that access. */
-export function SettingsAccessCard({ id, required, hasCode, unlockedUntil }: { id: number; required: boolean; hasCode: boolean; unlockedUntil: string | null }) {
-  const [code, setCode] = useState<string | null>(null);
+/** Super admin: control whether the owner needs the restaurant's standing 8-digit code to open Settings.
+ *  The code is masked until you click to reveal it, and it rotates by itself every time the owner uses it. */
+export function SettingsAccessCard({ id, required, code, unlockedUntil }: { id: number; required: boolean; code: string; unlockedUntil: string | null }) {
+  const [reveal, setReveal] = useState(false);
   const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
@@ -249,16 +250,22 @@ export function SettingsAccessCard({ id, required, hasCode, unlockedUntil }: { i
     <div className="space-y-3">
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" className="h-5 w-5 accent-[var(--color-brand)]" checked={required} disabled={pending}
-          onChange={(e) => start(async () => { const r = await setSettingsOtpRequiredAction(id, e.target.checked); setM(r.ok ? { ok: true, t: r.msg ?? "" } : { ok: false, t: r.error }); setCode(null); router.refresh(); })} />
-        <span><b>Require a code to open Settings</b><span className="block text-xs text-muted">Leave off for trials. When on, the owner must enter an 8-digit code you give them each time they open Settings.</span></span>
+          onChange={(e) => start(async () => { const r = await setSettingsOtpRequiredAction(id, e.target.checked); setM(r.ok ? { ok: true, t: r.msg ?? "" } : { ok: false, t: r.error }); setReveal(false); router.refresh(); })} />
+        <span><b>Require a code to open Settings</b><span className="block text-xs text-muted">Leave off for trials. When on, the owner must enter this restaurant&apos;s 8-digit code to open Settings.</span></span>
       </label>
       {required && (
         <div className="rounded-xl border border-line p-3">
-          <div className="mb-2 text-sm">Status: {open ? <span className="font-semibold text-emerald-700">● Settings open (owner unlocked it)</span> : hasCode ? <span className="font-semibold text-amber-700">● Code issued, waiting for the owner</span> : <span className="font-semibold text-stone-600">● Locked</span>}</div>
-          {code && <div className="mb-2 rounded-lg bg-gold-light/60 px-3 py-2 text-center"><div className="text-xs text-muted">Give this code to the owner (one-time, expires after use):</div><div className="font-mono text-2xl font-bold tracking-widest">{code}</div></div>}
+          <div className="mb-2 text-sm">Status: {open ? <span className="font-semibold text-emerald-700">● Settings open now (owner unlocked it)</span> : <span className="font-semibold text-stone-600">● Locked</span>}</div>
+          <div className="mb-2 rounded-lg bg-gold-light/60 px-3 py-2 text-center">
+            <div className="text-xs text-muted">This restaurant&apos;s access code — read it out to the owner. It changes by itself after each use.</div>
+            <div className="mt-1 flex items-center justify-center gap-2">
+              <span className="font-mono text-2xl font-bold tracking-widest">{reveal && code ? code : "••••••••"}</span>
+              <button type="button" className="btn-ghost btn-sm" onClick={() => setReveal((x) => !x)}>{reveal ? "Hide" : "👁 Show"}</button>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-primary btn-sm" disabled={pending} onClick={() => start(async () => { const r = await genSettingsOtpAction(id); if (r.ok && r.code) { setCode(r.code); setM({ ok: true, t: "New code generated — read it out to the owner." }); } else if (!r.ok) setM({ ok: false, t: r.error }); router.refresh(); })}>{hasCode || open ? "New code" : "Generate code"}</button>
-            {(open || hasCode) && <button className="btn-ghost btn-sm" disabled={pending} onClick={() => start(async () => { const r = await closeSettingsAccessAction(id); setCode(null); setM(r.ok ? { ok: true, t: r.msg ?? "" } : { ok: false, t: r.error }); router.refresh(); })}>Close settings access</button>}
+            <button className="btn-ghost btn-sm" disabled={pending} onClick={() => start(async () => { const r = await genSettingsOtpAction(id); setReveal(true); setM(r.ok ? { ok: true, t: "New code generated." } : { ok: false, t: r.error }); router.refresh(); })}>↻ Regenerate code</button>
+            {open && <button className="btn-ghost btn-sm" disabled={pending} onClick={() => start(async () => { const r = await closeSettingsAccessAction(id); setM(r.ok ? { ok: true, t: r.msg ?? "" } : { ok: false, t: r.error }); router.refresh(); })}>Close settings access now</button>}
           </div>
         </div>
       )}

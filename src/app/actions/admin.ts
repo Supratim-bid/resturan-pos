@@ -229,32 +229,40 @@ export async function setTenantValidTillAction(id: number, date: string): Promis
   } catch (e) { return err(e); }
 }
 
-/** Turn the Settings OTP-lock on or off for a restaurant (e.g. leave it off for trials). */
+const rand8 = () => String(Math.floor(10000000 + Math.random() * 90000000));
+
+/** Turn the Settings OTP-lock on or off for a restaurant (e.g. leave it off for trials).
+ *  When turning it on, make sure a standing 8-digit code exists for the owner to use. */
 export async function setSettingsOtpRequiredAction(id: number, required: boolean): Promise<R> {
   try {
     await requireAdmin();
-    await db.update(schema.tenants).set(required ? { settingsOtpRequired: true } : { settingsOtpRequired: false, settingsOtp: "", settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
+    if (required) {
+      const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, id), columns: { settingsOtp: true } });
+      await db.update(schema.tenants).set({ settingsOtpRequired: true, ...(t?.settingsOtp ? {} : { settingsOtp: rand8() }) }).where(eq(schema.tenants.id, id));
+    } else {
+      await db.update(schema.tenants).set({ settingsOtpRequired: false, settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
+    }
     revalidatePath(`/admin/restaurants/${id}`);
-    return { ok: true, msg: required ? "Settings now need an access code." : "Settings open without a code." };
+    return { ok: true, msg: required ? "Settings now need the access code." : "Settings open without a code." };
   } catch (e) { return err(e); }
 }
 
-/** Generate a fresh 8-digit, one-time code the owner uses to open Settings. Returns the code to show the admin. */
+/** Regenerate the restaurant's standing 8-digit code (also cancels any current unlock). Returns the new code. */
 export async function genSettingsOtpAction(id: number): Promise<R & { code?: string }> {
   try {
     await requireAdmin();
-    const code = String(Math.floor(10000000 + Math.random() * 90000000));
+    const code = rand8();
     await db.update(schema.tenants).set({ settingsOtpRequired: true, settingsOtp: code, settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
     revalidatePath(`/admin/restaurants/${id}`);
     return { ok: true, code, msg: "New code generated." };
   } catch (e) { return err(e); }
 }
 
-/** Close the owner's Settings access immediately (and cancel any unused code). */
+/** Close the owner's current Settings access immediately. The standing code stays (and still works next time). */
 export async function closeSettingsAccessAction(id: number): Promise<R> {
   try {
     await requireAdmin();
-    await db.update(schema.tenants).set({ settingsOtp: "", settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
+    await db.update(schema.tenants).set({ settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
     revalidatePath(`/admin/restaurants/${id}`);
     return { ok: true, msg: "Settings access closed." };
   } catch (e) { return err(e); }

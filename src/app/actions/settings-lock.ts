@@ -15,7 +15,9 @@ export async function unlockSettingsAction(otp: string): Promise<{ ok: true } | 
     const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, u.tenantId), columns: { settingsOtp: true } });
     if (!t?.settingsOtp) return { ok: false, error: "No access code is active. Ask the platform admin to generate one for you." };
     if (code.length !== 8 || code !== t.settingsOtp) return { ok: false, error: "That code is not correct. Ask the platform admin for the current 8-digit code." };
-    await db.update(schema.tenants).set({ settingsOtp: "", settingsUnlockedUntil: new Date(Date.now() + UNLOCK_MINUTES * 60_000) }).where(eq(schema.tenants.id, u.tenantId));
+    // Rotate to a fresh code immediately, so the one just used can never be reused.
+    const next = String(Math.floor(10000000 + Math.random() * 90000000));
+    await db.update(schema.tenants).set({ settingsOtp: next, settingsUnlockedUntil: new Date(Date.now() + UNLOCK_MINUTES * 60_000) }).where(eq(schema.tenants.id, u.tenantId));
     revalidatePath("/settings");
     return { ok: true };
   } catch (e) { return { ok: false, error: String((e as Error).message) }; }
