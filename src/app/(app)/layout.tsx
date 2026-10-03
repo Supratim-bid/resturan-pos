@@ -4,6 +4,8 @@ import { requireUser } from "@/lib/auth";
 import { MODULES, can, ROLE_LABEL, type ModuleKey } from "@/lib/permissions";
 import { themeCss } from "@/lib/theme";
 import { BottomNav, DayEndButton, NavProgress, SideNav, type NavItem } from "@/components/nav";
+import { OutletSwitcher } from "@/components/outlet-switcher";
+import { getUserGroupAccess } from "@/lib/groups";
 import { logout } from "../actions/auth";
 import { exitImpersonationAction } from "../actions/admin";
 import { db, schema } from "@/db";
@@ -18,6 +20,11 @@ const SHORT: Partial<Record<ModuleKey, string>> = { kot: "Kitchen", delivery: "D
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   const setting = await db.query.settings.findFirst({ where: eq(schema.settings.tenantId, user.tenantId) });
+  // Multi-outlet: show the outlet switcher when this person spans a group AND the feature is on.
+  const access = user.features.includes("multiOutlet") ? await getUserGroupAccess(user.id) : null;
+  const outletSwitcher = access && access.outlets.length > 1
+    ? <OutletSwitcher outlets={access.outlets} activeId={user.tenantId} groupName={access.group.name} showAll={access.role === "OWNER" || access.group.combinedOrdering} />
+    : null;
   const allowed = (Object.keys(MODULES) as ModuleKey[]).filter((k) => can(user, k));
   const side: NavItem[] = allowed.map((k) => ({ href: MODULES[k].href, label: MODULES[k].label, icon: ICONS[k] }));
   // bottom bar: up to 4 most-used tabs this person can open, New Order in the middle when allowed
@@ -43,6 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <img src="/logo" alt="" className="h-12 w-12 rounded-full bg-white object-cover ring-2 ring-gold/60" />
           <div className="min-w-0"><div className="truncate font-display text-lg font-bold leading-tight text-brand">{name}</div><div className="text-[11px] text-muted">{setting?.tagline || "Restaurant Manager"}</div></div>
         </Link>
+        {outletSwitcher && <div className="mb-3">{outletSwitcher}</div>}
         <SideNav items={side} />
         {can(user, "dayEnd") && <div className="mt-3 border-t border-line pt-3"><DayEndButton closed={!!setting?.closedNow} /></div>}
         <div className="mt-auto border-t border-line pt-3 text-xs">

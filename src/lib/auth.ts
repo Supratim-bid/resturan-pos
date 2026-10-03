@@ -9,27 +9,44 @@ import { FEATURE_TABS } from "./features";
 import { cache } from "react";
 import { featureInfo } from "./plans";
 import { isLive } from "./tenant-status";
+import { groupAccessToOutlet, type GroupRole } from "./groups";
 
-export type CurrentUser = { id: number; tenantId: number; tenantCode: string; name: string; username: string; role: Role; perms: PermKey[]; features: string[]; impersonated?: boolean };
+export type CurrentUser = { id: number; tenantId: number; tenantCode: string; name: string; username: string; role: Role; perms: PermKey[]; features: string[]; impersonated?: boolean;
+  homeTenantId: number; group?: { role: GroupRole } | null };
 
-/** Logged-in, active user of an active restaurant - or null */
+/** Logged-in, active user of an active restaurant - or null. Honours the "active outlet" (oid) for group owners/managers. */
 // cache(): the layout and the page both ask for the user - one database trip per request, not two
 export const getUser = cache(async (): Promise<CurrentUser | null> => {
   const s = await verifySession((await cookies()).get(COOKIE)?.value);
   if (!s) return null;
-  // user + restaurant + plan in ONE query (each trip to the database costs time)
+  // identity: user + their HOME restaurant + plan in ONE query
   const [row] = await db.select({ u: schema.users, t: schema.tenants, p: schema.plans }).from(schema.users)
     .innerJoin(schema.tenants, eq(schema.tenants.id, schema.users.tenantId))
     .leftJoin(schema.plans, eq(schema.plans.key, schema.tenants.plan))
     .where(eq(schema.users.id, s.uid)).limit(1);
   const u = row?.u;
   if (!u || !u.active || u.sessionVersion !== s.v || u.tenantId !== s.tid) return null;
-  const t = row.t;
+
+  // Which outlet are we working in? Default: the user's home outlet. A group owner/manager can switch (oid).
+  let t = row.t, plan = row.p, grole: GroupRole | null = null;
+  if (s.oid && s.oid !== u.tenantId) {
+    const role = await groupAccessToOutlet(u.id, s.oid);
+    if (role) {
+      const [orow] = await db.select({ t: schema.tenants, p: schema.plans }).from(schema.tenants)
+        .leftJoin(schema.plans, eq(schema.plans.key, schema.tenants.plan))
+        .where(eq(schema.tenants.id, s.oid)).limit(1);
+      if (orow && isLive(orow.t)) { t = orow.t; plan = orow.p; grole = role; }
+    }
+  }
   if (!isLive(t)) return null;
-  const features = featureInfo(t, row.p).active;
+  const features = featureInfo(t, plan).active;
+  // In a switched outlet, a group OWNER acts as OWNER, a group MANAGER gets the Manager default access.
+  const effRole: Role = grole === "OWNER" ? "OWNER" : grole === "MANAGER" ? "MANAGER" : (u.role as Role);
+  const saved = grole ? null : u.permissions;
   // a tab that belongs to a feature is hidden until the super admin switches the feature on (and the owner has not switched it off)
-  const perms = effectivePerms(u.role, u.permissions).filter((k) => !FEATURE_TABS[k] || features.includes(FEATURE_TABS[k]));
-  return { id: u.id, tenantId: u.tenantId, tenantCode: t.code, name: u.name, username: u.username, role: u.role as Role, perms, features, impersonated: !!s.imp };
+  const perms = effectivePerms(effRole, saved).filter((k) => !FEATURE_TABS[k] || features.includes(FEATURE_TABS[k]));
+  return { id: u.id, tenantId: t.id, tenantCode: t.code, name: u.name, username: u.username, role: effRole, perms, features, impersonated: !!s.imp,
+    homeTenantId: u.tenantId, group: grole ? { role: grole } : null };
 });
 
 export async function requireUser(): Promise<CurrentUser> {

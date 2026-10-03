@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createUserAction, saveSettingsAction, saveThemeAction, revertThemeAction, savePaymentSettingsAction, testGatewayAction, savePoliciesAction, setOwnFeatureAction, updateUserAction } from "@/app/actions/settings";
+import { createUserAction, saveSettingsAction, saveThemeAction, revertThemeAction, savePaymentSettingsAction, testGatewayAction, savePoliciesAction, setOwnFeaturesAction, updateUserAction } from "@/app/actions/settings";
 import { themeCss, tonePalette } from "@/lib/theme";
 import { Modal } from "./crud";
 import { MODULES, POWERS, ROLE_DEFAULTS, ROLE_LABEL, type PermKey, type Role } from "@/lib/permissions";
@@ -529,23 +529,28 @@ export function OwnFeatures({ allowed, off: initialOff }: { allowed: string[]; o
   const [pending, start] = useTransition();
   const router = useRouter();
   const keys = (Object.keys(FEATURES) as FeatureKey[]).filter((k) => allowed.includes(k)); // same order as the feature list (KOT screen next to KOT print)
+  const dirty = JSON.stringify([...off].sort()) !== JSON.stringify([...initialOff].sort());
+  const save = () => start(async () => { const r = await setOwnFeaturesAction(off); setMsg(r.ok ? { ok: true, t: "Saved." } : { ok: false, t: r.error }); if (r.ok) router.refresh(); });
   if (!keys.length) return <p className="text-sm text-muted">No extra features in your plan yet. Ask the platform admin to upgrade.</p>;
   return (
     <div className="space-y-2">
+      <p className="text-xs text-muted">Turn features on or off, then press <b>Save</b>.</p>
       {keys.map((k) => {
         const on = !off.includes(k);
         return (
           <label key={k} className="flex items-start gap-3 rounded-xl border border-line p-3">
-            <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on} disabled={pending} aria-label={FEATURES[k].label}
-              onChange={(e) => { const want = e.target.checked; setOff((o) => (want ? o.filter((x) => x !== k) : [...o, k])); start(async () => {
-                const r = await setOwnFeatureAction(k, want); if (!r.ok) { setOff(initialOff); setMsg({ ok: false, t: r.error }); } else { setMsg({ ok: true, t: `${FEATURES[k].label}: ${want ? "on" : "off"}.` }); router.refresh(); }
-              }); }} />
+            <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on} aria-label={FEATURES[k].label}
+              onChange={(e) => { const want = e.target.checked; setOff((o) => (want ? o.filter((x) => x !== k) : [...o, k])); }} />
             <span><b>{FEATURES[k].label}</b> <span className={`ml-1 rounded-full px-2 text-[11px] font-bold ${on ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-600"}`}>{on ? "ON" : "OFF"}</span>
               <span className="block text-xs text-muted">{FEATURES[k].help}</span></span>
           </label>
         );
       })}
-      {msg && <p className={`text-sm ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</p>}
+      <div className="flex items-center gap-3 pt-1">
+        <button className="btn-primary btn-sm" disabled={pending || !dirty} onClick={save}>{pending ? "Saving…" : dirty ? "Save" : "Saved"}</button>
+        {dirty && <button type="button" className="btn-ghost btn-sm" onClick={() => { setOff(initialOff); setMsg(null); }}>Undo</button>}
+        {msg && <span className={`text-sm ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.t}</span>}
+      </div>
     </div>
   );
 }

@@ -11,14 +11,15 @@ export const FEATURE_GROUPS = {
   kitchen: "Kitchen & stock",
   money: "Money & reports",
   team: "Team",
+  promax: "Multi-outlet (Pro Max)",
 } as const;
 export type FeatureGroup = keyof typeof FEATURE_GROUPS;
 
 type F = { label: string; help: string; group: FeatureGroup; comingSoon?: boolean };
 export const FEATURES = {
   preorders: { label: "Pre-orders", group: "orders", help: "Book orders for a later date and meal (breakfast / lunch / dinner), with a kitchen cook list." },
-  kot: { label: "Kitchen screen (KOT)", group: "orders", help: "Live kitchen screen: new tickets ring, cook / ready / served, dish totals. Bills can send a KOT to the screen." },
-  kotPrint: { label: "KOT print", group: "orders", help: "Print KOT slips (dishes and notes, no prices) - with the bill or on their own (\"Save + print KOT\")." },
+  kot: { label: "Kitchen Display (KDS)", group: "orders", help: "Live kitchen display screen: new tickets ring, cook / ready / served, dish totals. A separate access from KOT print — switch either on alone." },
+  kotPrint: { label: "KOT print (ticket)", group: "orders", help: "Print KOT slips (dishes and notes, no prices) — with the bill or on their own (\"Save + print KOT\"). A separate access from the KDS screen." },
   onlineOrders: { label: "Online ordering", group: "online", help: "Customers order from their phone at /<code>/order (delivery, pickup, pre-order); staff accept or reject." },
   paymentGateways: { label: "Payment links & gateways", group: "online", help: "Razorpay, Instamojo or Cashfree payment links on bills - marked paid automatically." },
   aggregators: { label: "Swiggy / Zomato orders", group: "online", help: "Receive Swiggy and Zomato orders here (through an integration partner).", comingSoon: true },
@@ -33,6 +34,7 @@ export const FEATURES = {
   settlements: { label: "Swiggy/Zomato payouts", group: "money", help: "Record weekly payouts and commission from the apps." },
   staff: { label: "Staff & attendance", group: "team", help: "Staff list, attendance and salary expenses." },
   reminders: { label: "Reminders", group: "team", help: "Licence renewals, rent, birthdays and other reminders." },
+  multiOutlet: { label: "Multi-outlet", group: "promax", help: "Run several outlets under one brand: the owner switches between outlets and sees a combined “All outlets” view. Managed by the super admin." },
 } as const satisfies Record<string, F>;
 export type FeatureKey = keyof typeof FEATURES;
 export const FEATURE_KEYS = Object.keys(FEATURES) as FeatureKey[];
@@ -54,6 +56,8 @@ export const DEFAULT_PLANS = [
     features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports"] },
   { key: "pro", name: "Pro", price: 1999, maxUsers: 15, sortOrder: 3, description: "Everything: Cash & Bank, payment gateways, Swiggy/Zomato payouts",
     features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports", "money", "settlements", "paymentGateways", "aggregators", "deliveryLocation", "deliveryPartners"] },
+  { key: "promax", name: "Pro Max", price: 3999, maxUsers: 40, sortOrder: 4, description: "Everything in Pro, plus multi-outlet: run several branches under one brand with a combined view",
+    features: ["preorders", "reminders", "onlineOrders", "kot", "kotPrint", "recipes", "stock", "packaging", "vendors", "staff", "reports", "money", "settlements", "paymentGateways", "deliveryLocation", "multiOutlet"] },
 ] as const;
 
 /** What a restaurant is allowed to use: its plan + add-ons − removed (coming-soon features never count) */

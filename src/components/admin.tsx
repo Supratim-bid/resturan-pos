@@ -3,11 +3,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   requestOtpAction, verifyOtpAction, passwordLoginAction, createTenantAction, updateTenantAction, setTenantActiveAction, addOwnerAction,
-  resetUserPasswordAction, deleteTenantAction, addSuperAdminAction, setSuperAdminActiveAction, setTenantFeatureAction,
+  resetUserPasswordAction, deleteTenantAction, addSuperAdminAction, setSuperAdminActiveAction, setTenantFeaturesAction,
   setTenantPlanAction, savePlanAction, deletePlanAction, openTenantAsOwnerAction, editUserAction, deleteUserAction,
   uploadResourceAction, deleteResourceAction, replySupportAction,
   setTenantValidTillAction, replicateTenantAction,
   setSettingsOtpRequiredAction, genSettingsOtpAction, closeSettingsAccessAction,
+  createDemoGroupAction, setGroupOptionsAction,
 } from "@/app/actions/admin";
 import { useRef } from "react";
 import { FEATURES, FEATURE_GROUPS, FEATURE_KEYS, type FeatureKey, type FeatureGroup } from "@/lib/features";
@@ -238,6 +239,61 @@ export function SubscriptionCard({ id, active, validTill, expired }: { id: numbe
   );
 }
 
+/** One-click demo multi-outlet group (for trying Pro Max). Shows the owner login after it's built. */
+export function DemoGroupButton() {
+  const [pending, start] = useTransition();
+  const [res, setRes] = useState<Awaited<ReturnType<typeof createDemoGroupAction>> | null>(null);
+  const router = useRouter();
+  return (
+    <div>
+      <button className="btn-primary" disabled={pending} onClick={() => start(async () => { const r = await createDemoGroupAction(); setRes(r); router.refresh(); })}>
+        {pending ? "Building demo group…" : "+ Create demo multi-outlet group"}
+      </button>
+      {res && (res.ok && res.data
+        ? <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm">
+            <b>{res.data.groupName}</b> created with {res.data.outlets.length} outlets.
+            <div className="mt-1">Group-owner login — username <b className="font-mono">{res.data.ownerUsername}</b>, password <b className="font-mono">{res.data.ownerPassword}</b></div>
+            <div className="mt-1 text-xs text-muted">Sign in at <span className="font-mono">/{res.data.primaryCode}</span> — the outlet switcher appears in the menu. Outlets: {res.data.outlets.map((o) => o.code).join(", ")}.</div>
+          </div>
+        : <p className="mt-2 text-sm text-red-700">{res.ok ? "" : res.error}</p>)}
+    </div>
+  );
+}
+
+/** Super admin: the per-group toggles (Pro Max control panel). */
+export function GroupToggles({ g }: { g: { id: number; name: string; maxOutlets: number; menuMode: string; groupManagers: boolean; combinedOrdering: boolean; ownerCanAddOutlets: boolean } }) {
+  const [v, setV] = useState(g);
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState("");
+  const router = useRouter();
+  const dirty = JSON.stringify(v) !== JSON.stringify(g);
+  const save = () => start(async () => { const r = await setGroupOptionsAction(g.id, v); setMsg(r.ok ? "Saved ✓" : r.error); if (r.ok) router.refresh(); setTimeout(() => setMsg(""), 2000); });
+  const toggle = (k: "groupManagers" | "combinedOrdering" | "ownerCanAddOutlets", label: string, help: string) => (
+    <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--color-brand)]" checked={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.checked })} />
+      <span><b>{label}</b><span className="block text-xs text-muted">{help}</span></span></label>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="grid gap-0.5 text-sm"><span className="text-xs font-semibold text-muted">Max outlets</span>
+          <input type="number" min={1} max={50} className="input !w-24 !py-1.5" value={v.maxOutlets} onChange={(e) => setV({ ...v, maxOutlets: Number(e.target.value) })} /></label>
+        <label className="grid gap-0.5 text-sm"><span className="text-xs font-semibold text-muted">Menu mode</span>
+          <select className="input !w-auto !py-1.5" value={v.menuMode} onChange={(e) => setV({ ...v, menuMode: e.target.value })}>
+            <option value="independent">Independent per outlet</option><option value="shared">Shared master + price overrides</option>
+          </select></label>
+      </div>
+      {toggle("groupManagers", "Allow group managers", "A manager can be given access to some outlets (not all).")}
+      {toggle("combinedOrdering", "Order from the combined view", "Off = the All-outlets view is reporting only; switch into an outlet to bill.")}
+      {toggle("ownerCanAddOutlets", "Owner can add outlets", "On = the owner may add outlets up to the max; off = only you (super admin) add them.")}
+      <div className="flex items-center gap-3">
+        <button className="btn-primary btn-sm" disabled={pending || !dirty} onClick={save}>{pending ? "Saving…" : dirty ? "Save group settings" : "Saved"}</button>
+        {dirty && <span className="text-xs text-amber-700">Unsaved</span>}
+        {msg && <span className="text-xs text-emerald-700">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
 /** Super admin: control whether the owner needs the restaurant's standing 8-digit code to open Settings.
  *  The code is masked until you click to reveal it, and it rotates by itself every time the owner uses it. */
 export function SettingsAccessCard({ id, required, code, unlockedUntil }: { id: number; required: boolean; code: string; unlockedUntil: string | null }) {
@@ -427,9 +483,12 @@ export function TenantFeatures({ id, planName, planFeatures, addons, removed, of
   const [m, setM] = useState<{ ok: boolean; t: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
+  // Local draft only - nothing is saved (or the page re-rendered) until "Save features" is pressed.
+  const dirty = JSON.stringify([...st.addons].sort()) !== JSON.stringify([...addons].sort()) || JSON.stringify([...st.removed].sort()) !== JSON.stringify([...removed].sort());
+  const save = () => start(async () => { const r = await setTenantFeaturesAction(id, st.addons, st.removed); setM(r.ok ? { ok: true, t: r.msg ?? "Saved." } : { ok: false, t: r.error }); if (r.ok) router.refresh(); });
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted">Ticked = this restaurant can use it. Untick a plan feature to remove it for this restaurant only; tick one outside the plan to sell it as an add-on. Basics (billing, orders, customers, menu, expenses, cash closing) are always included.</p>
+      <p className="text-xs text-muted">Ticked = this restaurant can use it. Untick a plan feature to remove it for this restaurant only; tick one outside the plan to sell it as an add-on. Basics (billing, orders, customers, menu, expenses, cash closing) are always included. <b>Changes apply only when you press Save.</b></p>
       {grouped().map(({ g, keys }) => (
         <div key={g}>
           <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">{FEATURE_GROUPS[g]}</div>
@@ -438,14 +497,10 @@ export function TenantFeatures({ id, planName, planFeatures, addons, removed, of
               const on = allowedNow(k, st.addons, st.removed), inPlan = planFeatures.includes(k), cs = soon(k);
               return (
                 <label key={k} className={`flex items-start gap-3 rounded-xl border border-line p-3 ${cs ? "opacity-60" : ""}`}>
-                  <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on && !cs} disabled={pending || cs} aria-label={FEATURES[k].label}
-                    onChange={(e) => { const want = e.target.checked, before = st;
+                  <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--color-brand)]" checked={on && !cs} disabled={cs} aria-label={FEATURES[k].label}
+                    onChange={(e) => { const want = e.target.checked;
                       setSt((x) => ({ addons: want ? (inPlan ? x.addons : [...x.addons, k]) : x.addons.filter((y) => y !== k), removed: want ? x.removed.filter((y) => y !== k) : inPlan ? [...x.removed, k] : x.removed }));
-                      start(async () => {
-                        const r = await setTenantFeatureAction(id, k, want);
-                        if (!r.ok) setSt(before);
-                        setM(r.ok ? { ok: true, t: `${FEATURES[k].label}: ${r.msg}` } : { ok: false, t: r.error }); router.refresh();
-                      }); }} />
+                    }} />
                   <span><b>{FEATURES[k].label}</b>{" "}
                     {cs ? <span className="rounded-full bg-stone-100 px-2 text-[11px] font-bold text-stone-600">COMING SOON</span>
                       : inPlan && on ? <span className="rounded-full bg-emerald-100 px-2 text-[11px] font-bold text-emerald-800">IN {planName.toUpperCase()}</span>
@@ -460,6 +515,11 @@ export function TenantFeatures({ id, planName, planFeatures, addons, removed, of
           </div>
         </div>
       ))}
+      <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+        <button className="btn-primary" disabled={pending || !dirty} onClick={save}>{pending ? "Saving…" : dirty ? "Save features" : "Saved"}</button>
+        {dirty && <button type="button" className="btn-ghost btn-sm" disabled={pending} onClick={() => { setSt({ addons, removed }); setM(null); }}>Undo changes</button>}
+        {dirty && <span className="text-xs text-amber-700">Unsaved changes</span>}
+      </div>
       <Msg m={m} />
     </div>
   );

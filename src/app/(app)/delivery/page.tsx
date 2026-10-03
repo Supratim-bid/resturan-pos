@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { and, asc, eq, ilike } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requirePage } from "@/lib/auth";
+import { signLoc } from "@/lib/session";
 import { activeGateway, GATEWAY_LABEL, type Gateway } from "@/lib/gateway";
 import { upiForOnline } from "@/lib/online";
 import { addDays, fmtDate, fmtTime, inr, todayIST , fmtDateTime} from "@/lib/format";
@@ -31,6 +33,15 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
   // "Mine" = assigned to me, or not assigned to anyone yet
   const orders = mine ? allOrders.filter((o) => o.riderId === u.id || o.riderId == null) : allOrders;
   const gw = s && u.features.includes("paymentGateways") ? activeGateway(s) : "";
+  // "Ask for location" link per order (same /loc link as the order page) - only when the feature is on
+  const locFeature = u.features.includes("deliveryLocation");
+  const locUrls = new Map<number, string>();
+  if (locFeature) {
+    const h = await headers();
+    const origin = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("x-forwarded-host") ?? h.get("host") ?? ""}`;
+    await Promise.all(orders.map(async (o) => { locUrls.set(o.id, `${origin}/loc/${await signLoc(u.tenantId, o.id)}`); }));
+  }
+  const brand = s?.billName || s?.name || "your order";
   const rows = orders.map((o) => {
     const paid = o.payments.reduce((a, p) => a + Number(p.amount), 0);
     const due = Math.max(0, Math.round((Number(o.total) - paid) * 100) / 100);
@@ -98,7 +109,16 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
                 </div>
                 <div className="text-sm">
                   <div className="font-semibold">{o.customer?.name ?? "Customer"}</div>
-                  {addr && <a className="block text-brand underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`}>📍 {addr}</a>}
+                  {o.destLat && o.destLng
+                    ? <a className="block font-semibold text-emerald-700 underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${o.destLat},${o.destLng}`}>📍 Open exact pinned location in Maps</a>
+                    : null}
+                  {addr && <a className="block text-brand underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`}>{o.destLat ? "🔎 " : "📍 "}{addr}{o.destLat ? " (address)" : ""}</a>}
+                  {locFeature && !o.destLat && (
+                    p10.length === 10
+                      ? <a className="mt-1 inline-block rounded-lg border-2 border-emerald-600 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50" target="_blank" rel="noreferrer"
+                          href={`https://wa.me/91${p10}?text=${encodeURIComponent(`Namaste 🙏 Please share your delivery location for ${brand}${o.billNo ? ` (bill ${o.billNo})` : ""} so we can reach you quickly:\n${locUrls.get(o.id)}\n\nOpen the link, tap “Use my current location”, then “Confirm”. Thank you!`)}`}>📍 Ask location on WhatsApp</a>
+                      : <span className="mt-1 block text-xs text-amber-700">No pinned location — add the customer’s mobile to send a location link.</span>
+                  )}
                   {p10.length === 10 && <div className="mt-1 flex gap-2"><a className="btn-ghost btn-sm" href={`tel:+91${p10}`}>📞 {phone}</a><a className="btn-ghost btn-sm" target="_blank" rel="noreferrer" href={`https://wa.me/91${p10}`}>WhatsApp</a></div>}
                 </div>
                 <div className="text-xs text-muted">{o.items.map((i) => `${Number(i.qty)} × ${i.name}`).join(", ")}{paid > 0 ? ` · paid ${inr(paid)}` : ""}</div>
@@ -107,7 +127,7 @@ export default async function Delivery({ searchParams }: { searchParams: Promise
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <AssignRider orderId={o.id} riders={riders} value={o.riderId} />
                     {o.fulfilStatus === "OUT" && o.etaMin != null && o.etaAt && Date.now() - new Date(o.etaAt).getTime() < 30 * 60 * 1000 && <span className="text-xs font-semibold text-emerald-700">⏱️ ETA ~{etaRange(o.etaMin)}</span>}
-                    {o.fulfilStatus === "OUT" && !o.destLat && <span className="text-xs text-amber-700">no customer location (ask them to open the tracking link)</span>}
+                    {!locFeature && o.fulfilStatus === "OUT" && !o.destLat && <span className="text-xs text-amber-700">no customer location (ask them to open the tracking link)</span>}
                   </div>
                 )}
                 {(isDone || collectedBy) && (

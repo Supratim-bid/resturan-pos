@@ -38,6 +38,9 @@ export const tenants = pgTable("tenants", {
   featuresOff: text("features_off").array().notNull().default([]), // features the owner switched off for now (still allowed by super admin)
   featuresRemoved: text("features_removed").array().notNull().default([]), // taken out of this restaurant's plan by the super admin
   maxUsers: integer("max_users"),                                  // login limit for this restaurant (null = the plan's limit)
+  // Multi-outlet (Pro Max): a brand/group can have several outlets, each its own tenant.
+  groupId: integer("group_id").references(() => groups.id, { onDelete: "set null" }), // null = standalone restaurant
+  isPrimaryOutlet: boolean("is_primary_outlet").notNull().default(false),             // the group's main outlet
   validTill: day("valid_till"),                                    // paid/trial end date; past this the account auto-locks (null = no expiry)
   // Settings-page lock: super admin issues an 8-digit OTP; owner enters it to unlock Settings for a short while.
   settingsOtpRequired: boolean("settings_otp_required").notNull().default(false), // when on, Settings needs a super-admin OTP
@@ -47,6 +50,28 @@ export const tenants = pgTable("tenants", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 const tid = () => integer("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" });
+
+// A brand/group that owns several outlets (Pro Max). Every toggle here is set by the super admin.
+export const groups = pgTable("groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  maxOutlets: integer("max_outlets").notNull().default(3),              // how many outlets this group may have
+  menuMode: text("menu_mode").notNull().default("independent"),         // "independent" | "shared" (shared = master menu + per-outlet price overrides)
+  groupManagers: boolean("group_managers").notNull().default(false),    // allow the "group manager" role (access to some outlets)
+  combinedOrdering: boolean("combined_ordering").notNull().default(false), // "All outlets" view can take orders (off = reporting only)
+  ownerCanAddOutlets: boolean("owner_can_add_outlets").notNull().default(true), // owner may self-serve add outlets up to maxOutlets
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Who can span a group's outlets. OWNER = all outlets; MANAGER = only the outlet ids listed.
+export const groupMembers = pgTable("group_members", {
+  id: serial("id").primaryKey(),
+  groupId: integer("group_id").notNull().references(() => groups.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("MANAGER"),                      // "OWNER" | "MANAGER"
+  outletIds: integer("outlet_ids").array().notNull().default([]),       // MANAGER: which outlet tenant ids (OWNER ignores this)
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("group_members_group").on(t.groupId), index("group_members_user").on(t.userId)]);
 
 export const superAdmins = pgTable("super_admins", {
   id: serial("id").primaryKey(),

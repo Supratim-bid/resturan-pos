@@ -239,7 +239,7 @@ export async function replicateTenant(db: DB, srcId: number, t: NewTenant) {
 }
 
 /** A handful of customers + a week of random orders/payments, for a demo/sandbox copy. */
-async function addDummyOrders(db: DB, tenantId: number, itemIds: number[]) {
+export async function addDummyOrders(db: DB, tenantId: number, itemIds: number[]) {
   if (!itemIds.length) return;
   const items = await db.query.menuItems.findMany({ where: eq(schema.menuItems.tenantId, tenantId) });
   const byId = new Map(items.map((i) => [i.id, i]));

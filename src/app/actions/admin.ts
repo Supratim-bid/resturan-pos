@@ -12,6 +12,7 @@ import { sendMail } from "@/lib/mail";
 import { envAdminEmails, syncEnvAdmins } from "@/lib/admin-env";
 import { assertNotLocked, clearFailures, clientIp, recordFailure } from "@/lib/throttle";
 import { addSampleData, provisionTenant, replicateTenant, USERNAME_RE, CODE_RE } from "@/lib/provision";
+import { provisionDemoGroup } from "@/lib/provision-group";
 import { RESERVED_PATHS } from "@/lib/reserved";
 import { FEATURE_KEYS, isComingSoon, type FeatureKey } from "@/lib/features";
 
@@ -157,6 +158,22 @@ export async function setTenantFeatureAction(id: number, feature: FeatureKey, on
   } catch (e) { return err(e); }
 }
 
+/** Save the whole feature selection for a restaurant in ONE write (used by the Save-button feature editor). */
+export async function setTenantFeaturesAction(id: number, addons: string[], removed: string[]): Promise<R> {
+  try {
+    await requireAdmin();
+    const valid = (arr: string[]) => [...new Set(arr.filter((f) => (FEATURE_KEYS as string[]).includes(f) && !isComingSoon(f)))];
+    const add = valid(addons), rem = valid(removed);
+    const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, id) });
+    if (!t) throw new Error("Restaurant not found.");
+    // anything newly allowed should not stay in the owner's "switched off" list
+    const nowOff = (t.featuresOff ?? []).filter((f) => rem.includes(f) || (!add.includes(f) && !(t.features ?? []).includes(f)));
+    await db.update(schema.tenants).set({ features: add, featuresRemoved: rem, featuresOff: nowOff }).where(eq(schema.tenants.id, id));
+    revalidatePath(`/admin/restaurants/${id}`); revalidatePath("/admin");
+    return { ok: true, msg: "Features saved." };
+  } catch (e) { return err(e); }
+}
+
 /** Change a restaurant's plan (and optional login limit). Per-restaurant add-ons/removals are kept. */
 export async function setTenantPlanAction(id: number, planKey: string, maxUsers: string): Promise<R> {
   try {
@@ -265,6 +282,35 @@ export async function closeSettingsAccessAction(id: number): Promise<R> {
     await db.update(schema.tenants).set({ settingsUnlockedUntil: null }).where(eq(schema.tenants.id, id));
     revalidatePath(`/admin/restaurants/${id}`);
     return { ok: true, msg: "Settings access closed." };
+  } catch (e) { return err(e); }
+}
+
+// ---------------- Multi-outlet groups (Pro Max) ----------------
+
+/** One-click: build a demo "My Restaurant Group" with 3 outlets, sample menus and dummy orders, to try multi-outlet. */
+export async function createDemoGroupAction(): Promise<R & { data?: Awaited<ReturnType<typeof provisionDemoGroup>> }> {
+  try {
+    await requireAdmin();
+    const data = await provisionDemoGroup(db);
+    revalidatePath("/admin/groups"); revalidatePath("/admin");
+    return { ok: true, data, msg: "Demo group created." };
+  } catch (e) { return err(e); }
+}
+
+/** Change a group's super-admin toggles (max outlets, menu mode, managers, combined ordering, self-serve outlets). */
+export async function setGroupOptionsAction(groupId: number, patch: Partial<{ name: string; maxOutlets: number; menuMode: string; groupManagers: boolean; combinedOrdering: boolean; ownerCanAddOutlets: boolean }>): Promise<R> {
+  try {
+    await requireAdmin();
+    const set: Record<string, unknown> = {};
+    if (patch.name != null) set.name = String(patch.name).trim().slice(0, 80) || "Group";
+    if (patch.maxOutlets != null) set.maxOutlets = Math.max(1, Math.min(50, Math.round(Number(patch.maxOutlets) || 1)));
+    if (patch.menuMode != null) set.menuMode = patch.menuMode === "shared" ? "shared" : "independent";
+    if (patch.groupManagers != null) set.groupManagers = !!patch.groupManagers;
+    if (patch.combinedOrdering != null) set.combinedOrdering = !!patch.combinedOrdering;
+    if (patch.ownerCanAddOutlets != null) set.ownerCanAddOutlets = !!patch.ownerCanAddOutlets;
+    if (Object.keys(set).length) await db.update(schema.groups).set(set).where(eq(schema.groups.id, groupId));
+    revalidatePath("/admin/groups");
+    return { ok: true, msg: "Saved." };
   } catch (e) { return err(e); }
 }
 

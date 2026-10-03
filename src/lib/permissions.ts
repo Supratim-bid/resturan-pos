@@ -8,7 +8,7 @@ export const MODULES = {
   orders:     { label: "Orders & Bills",     href: "/orders" },
   preorders:  { label: "Pre-orders",         href: "/preorders" },
   onlineOrders: { label: "Online Orders",    href: "/online-orders" },
-  kot:        { label: "Kitchen (KOT)",      href: "/kot" },
+  kot:        { label: "Kitchen Display (KDS)", href: "/kot" },
   delivery:   { label: "Delivery",           href: "/delivery" },
   customers:  { label: "Customers & Dues",   href: "/customers" },
   dailyMenu:  { label: "Today's Menu",       href: "/daily-menu" },

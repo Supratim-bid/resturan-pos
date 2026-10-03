@@ -212,6 +212,21 @@ export async function setOwnFeatureAction(feature: string, on: boolean): Promise
   } catch (e) { return fail(e); }
 }
 
+/** Save all owner feature on/off switches in ONE write (Save-button model). `off` = features the owner turned off. */
+export async function setOwnFeaturesAction(off: string[]): Promise<R> {
+  try {
+    const u = await requireAction("settings");
+    const tp = await tenantWithPlan({ id: u.tenantId });
+    const t = tp?.t;
+    if (!t) throw new Error("Restaurant not found.");
+    const allowed = featureInfo(t, tp!.plan).allowed;
+    const clean = [...new Set((off ?? []).filter((f) => allowed.includes(f)))];
+    await db.update(schema.tenants).set({ featuresOff: clean }).where(eq(schema.tenants.id, u.tenantId));
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (e) { return fail(e); }
+}
+
 /** Owner's own text for the public policy pages (blank = ready-made text) */
 export async function savePoliciesAction(v: { policyTerms: string; policyRefund: string; policyDelivery: string; policyPrivacy: string; policyContactNote: string }): Promise<R> {
   try {

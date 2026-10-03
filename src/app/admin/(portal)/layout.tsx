@@ -12,6 +12,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin" className="flex items-center gap-2"><img src="/platform-logo.svg" alt="" className="h-8 w-8" /><span className="font-display text-lg font-bold">{app}</span><span className="rounded bg-gold px-1.5 text-[10px] font-bold text-ink">SUPER ADMIN</span></Link>
           <nav className="flex items-center gap-3 text-sm">
             <Link href="/admin" className="hover:text-gold">Restaurants</Link>
+            <Link href="/admin/groups" className="hover:text-gold">Groups</Link>
             <Link href="/admin/plans" className="hover:text-gold">Plans</Link>
             <Link href="/admin/resources" className="hover:text-gold">Resources</Link>
             <Link href="/admin/support" className="hover:text-gold">Support</Link>
